@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 
 BASE_DIR = Path(__file__).resolve().parent
 SEPTA_BASE_URL = "http://www3.septa.org/hackathon/NextToArrive/"
+SEPTA_TRAIN_VIEW_URL = "http://www3.septa.org/hackathon/TrainView/"
 
 
 class SeptaHandler(SimpleHTTPRequestHandler):
@@ -62,7 +63,39 @@ class SeptaHandler(SimpleHTTPRequestHandler):
             )
             return
 
-        body = json.dumps(trains).encode("utf-8")
+        consist_by_train = {}
+        train_view_request = Request(
+            SEPTA_TRAIN_VIEW_URL,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept": "application/json",
+            },
+        )
+
+        try:
+            with urlopen(train_view_request, timeout=10) as response:
+                train_view_payload = response.read()
+            train_view_entries = json.loads(train_view_payload.decode("utf-8"))
+            consist_by_train = {
+                str(entry.get("trainno", "")).strip(): entry.get("consist", "")
+                for entry in train_view_entries
+            }
+        except Exception:
+            consist_by_train = {}
+
+        enriched_trains = []
+        for train in trains:
+            train_number = str(train.get("orig_train") or train.get("trainno") or "").strip()
+            consist = consist_by_train.get(train_number, "")
+            enriched_trains.append(
+                {
+                    **train,
+                    "consist": consist,
+                    "car_count": len([car for car in consist.split(",") if car]) if consist else 0,
+                }
+            )
+
+        body = json.dumps(enriched_trains).encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Type", "application/json; charset=utf-8")

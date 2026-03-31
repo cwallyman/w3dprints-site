@@ -118,8 +118,13 @@ function renderResults(trains) {
     const statusText = formatDelay(train.orig_delay);
     const statusClass = classifyStatus(statusText);
     const trackValue = train.orig_track || train.track || "TBD";
+    const consist = `${train.consist || ""}`.trim();
+    const consistLabel = consist
+      ? `${train.car_count || consist.split(",").filter(Boolean).length} cars: ${consist}`
+      : "Consist unavailable";
 
     fragment.querySelector(".train-number").textContent = train.orig_train || train.trainno || "Unknown";
+    fragment.querySelector(".train-consist").textContent = consistLabel;
     fragment.querySelector(".train-time").textContent = `${train.orig_departure_time || "--"} -> ${train.orig_arrival_time || "--"}`;
     fragment.querySelector(".departure-time").textContent = train.orig_departure_time || "--";
     fragment.querySelector(".arrival-time").textContent = train.orig_arrival_time || "--";

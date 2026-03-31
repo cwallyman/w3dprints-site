@@ -1,4 +1,5 @@
 const SEPTA_BASE_URL = "http://www3.septa.org/hackathon/NextToArrive/";
+const SEPTA_TRAIN_VIEW_URL = "http://www3.septa.org/hackathon/TrainView/";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -57,9 +58,38 @@ export default {
     septaUrl.searchParams.set("req2", destination);
     septaUrl.searchParams.set("req3", "3");
 
-    let response;
+    let nextToArriveResponse;
     try {
-      response = await fetch(septaUrl.toString(), {
+      [nextToArriveResponse] = await Promise.all([
+        fetch(septaUrl.toString(), {
+          headers: {
+            Accept: "application/json",
+            "User-Agent": "w3dprints-next-trains-proxy",
+          },
+          cf: {
+            cacheTtl: 0,
+            cacheEverything: false,
+          },
+        }),
+      ]);
+    } catch (error) {
+      return textResponse(`Could not reach the SEPTA API: ${error.message}`, 502);
+    }
+
+    if (!nextToArriveResponse.ok) {
+      return textResponse(`SEPTA returned ${nextToArriveResponse.status}.`, 502);
+    }
+
+    let trains;
+    try {
+      trains = await nextToArriveResponse.json();
+    } catch (_error) {
+      return textResponse("SEPTA returned an unreadable response.", 502);
+    }
+
+    let trainViewEntries = [];
+    try {
+      const trainViewResponse = await fetch(SEPTA_TRAIN_VIEW_URL, {
         headers: {
           Accept: "application/json",
           "User-Agent": "w3dprints-next-trains-proxy",
@@ -69,21 +99,29 @@ export default {
           cacheEverything: false,
         },
       });
-    } catch (error) {
-      return textResponse(`Could not reach the SEPTA API: ${error.message}`, 502);
-    }
 
-    if (!response.ok) {
-      return textResponse(`SEPTA returned ${response.status}.`, 502);
-    }
-
-    let trains;
-    try {
-      trains = await response.json();
+      if (trainViewResponse.ok) {
+        trainViewEntries = await trainViewResponse.json();
+      }
     } catch (_error) {
-      return textResponse("SEPTA returned an unreadable response.", 502);
+      trainViewEntries = [];
     }
 
-    return jsonResponse(trains);
+    const consistByTrain = new Map(
+      trainViewEntries.map((entry) => [String(entry.trainno || "").trim(), entry.consist || ""])
+    );
+
+    const enrichedTrains = trains.map((train) => {
+      const trainNumber = String(train.orig_train || train.trainno || "").trim();
+      const consist = consistByTrain.get(trainNumber) || "";
+
+      return {
+        ...train,
+        consist,
+        car_count: consist ? consist.split(",").filter(Boolean).length : 0,
+      };
+    });
+
+    return jsonResponse(enrichedTrains);
   },
 };
