@@ -4,14 +4,83 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>w3dprints.net — Apps</title>
-  <style>body{font-family:system-ui,Segoe UI,Arial;margin:2rem;} a{display:block;margin:.5rem 0;}</style>
+  <style>
+    body {
+      font-family: system-ui, Segoe UI, Arial, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      /* Full-screen background image for the landing page. */
+      background: url('/assets/w3dprintsbackground.png') center / cover no-repeat fixed;
+      color: #ffffff;
+    }
+
+    main {
+      max-width: 42rem;
+      margin: 2rem;
+      padding: 1.5rem;
+      /* Semi-transparent panel keeps text readable over the image. */
+      background: rgba(1, 1, 1, 0.45);
+      border-radius: 1rem;
+      /* Soft blur helps the panel stand out from the background. */
+      backdrop-filter: blur(12px);
+    }
+
+    .app-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .app-icon {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      width: 6.5rem;
+      color: #ffffff;
+      text-decoration: none;
+      text-align: center;
+      gap: 0.5rem;
+    }
+
+    .app-icon img,
+    .app-icon .placeholder {
+      width: 4.5rem;
+      height: 4.5rem;
+      border-radius: .25rem;
+      object-fit: cover;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    }
+
+    .app-icon .placeholder {
+      display: grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      font-weight: 700;
+    }
+  </style>
 </head>
 <body>
-  <h1>w3dprints.net</h1>
-  <p>Hosted webapps:</p>
-  <a href="/apps/app1/">App 1 — Example static app</a>
-  <a href="/apps/app2/">App 2 — Example static app</a>
-  <hr>
-  <p>To add an app, create a folder under <code>docs/apps/&lt;app-name&gt;/</code> with an <code>index.html</code>.</p>
+  <main>
+    <h1>W3DPrints</h1>
+    <p>Apps</p>
+    <div class="app-grid">
+      <a class="app-icon" href="/apps/app1/">
+        <img src="/assets/icons/app1.png" alt="App 1 icon">
+        <span>App 1</span>
+      </a>
+      <a class="app-icon" href="/apps/app2/">
+        <img src="/assets/icons/app2.png" alt="App 2 icon">
+        <span>App 2</span>
+      </a>
+      <a class="app-icon" href="/apps/next trains/">
+        <img src="/assets/icons/next-trains.png" alt="Next Trains icon">
+        <span>Next Trains</span>
+      </a>
+    </div>
+    <hr>
+    <p>To add an app, create a folder under <code>docs/apps/&lt;app-name&gt;/</code> with an <code>index.html</code>.</p>
+  </main>
 </body>
 </html>
