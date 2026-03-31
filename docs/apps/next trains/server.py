@@ -31,7 +31,7 @@ class SeptaHandler(SimpleHTTPRequestHandler):
         destination = params.get("destination", [""])[0].strip()
 
         if not origin or not destination:
-            self.send_error(HTTPStatus.BAD_REQUEST, "Missing origin or destination.")
+            self.send_api_error(HTTPStatus.BAD_REQUEST, "Missing origin or destination.")
             return
 
         septa_url = f"{SEPTA_BASE_URL}?{urlencode({'req1': origin, 'req2': destination, 'req3': '3'})}"
@@ -47,7 +47,7 @@ class SeptaHandler(SimpleHTTPRequestHandler):
             with urlopen(request, timeout=10) as response:
                 payload = response.read()
         except Exception as exc:
-            self.send_error(
+            self.send_api_error(
                 HTTPStatus.BAD_GATEWAY,
                 f"Could not reach the SEPTA API from the local proxy: {exc}",
             )
@@ -56,7 +56,7 @@ class SeptaHandler(SimpleHTTPRequestHandler):
         try:
             trains = json.loads(payload.decode("utf-8"))
         except json.JSONDecodeError:
-            self.send_error(
+            self.send_api_error(
                 HTTPStatus.BAD_GATEWAY,
                 "SEPTA returned an unreadable response.",
             )
@@ -64,7 +64,17 @@ class SeptaHandler(SimpleHTTPRequestHandler):
 
         body = json.dumps(trains).encode("utf-8")
         self.send_response(HTTPStatus.OK)
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_api_error(self, status: HTTPStatus, message: str) -> None:
+        body = message.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

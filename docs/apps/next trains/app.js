@@ -9,6 +9,9 @@ const STATIONS = {
   },
 };
 
+const LOCAL_PROXY_ORIGIN = "http://127.0.0.1:8000";
+const PRODUCTION_PROXY_ORIGIN = "https://api.w3dprints.net";
+
 const originSelect = document.querySelector("#origin");
 const destinationSelect = document.querySelector("#destination");
 const tripForm = document.querySelector("#trip-form");
@@ -49,8 +52,16 @@ function normalizeErrorMessage(message) {
     return "Could not load train data.";
   }
 
+  if (
+    text === "Failed to fetch" ||
+    text.includes("NetworkError") ||
+    text.includes("Load failed")
+  ) {
+    return "Could not reach the local train proxy. Start it with `python3 server.py`, then open http://127.0.0.1:8000.";
+  }
+
   if (text.startsWith("<!DOCTYPE HTML>") || text.startsWith("<html")) {
-    return "The app is not running through server.py yet. Start it with `python3 server.py` and reload the page.";
+    return "The app is not running through server.py yet. Start it with `python3 server.py`, then open http://127.0.0.1:8000.";
   }
 
   return text;
@@ -119,20 +130,50 @@ function renderResults(trains) {
   });
 }
 
-function fetchNextToArrive(origin, destination) {
+function getApiUrls() {
+  const productionApiUrl = `${PRODUCTION_PROXY_ORIGIN}/api/next-trains`;
+  const localApiUrl = `${LOCAL_PROXY_ORIGIN}/api/next-trains`;
+  const host = window.location.hostname;
+
+  if (window.location.origin === LOCAL_PROXY_ORIGIN) {
+    return ["/api/next-trains"];
+  }
+
+  if (host === "w3dprints.net" || host === "www.w3dprints.net") {
+    return [productionApiUrl];
+  }
+
+  if (window.location.protocol === "file:") {
+    return [localApiUrl];
+  }
+
+  return ["/api/next-trains", productionApiUrl, localApiUrl];
+}
+
+async function fetchNextToArrive(origin, destination) {
   const params = new URLSearchParams({
     origin,
     destination,
   });
 
-  return fetch(`/api/next-trains?${params.toString()}`).then(async (response) => {
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(normalizeErrorMessage(errorText));
-    }
+  let lastError = null;
 
-    return response.json();
-  });
+  for (const apiUrl of getApiUrls()) {
+    try {
+      const response = await fetch(`${apiUrl}?${params.toString()}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(normalizeErrorMessage(errorText));
+      }
+
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Could not load train data.");
 }
 
 async function refreshTrains() {
