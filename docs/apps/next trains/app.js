@@ -121,7 +121,7 @@ function renderResults(trains) {
     const consist = `${train.consist || ""}`.trim();
     const consistLabel = consist
       ? `${train.car_count || consist.split(",").filter(Boolean).length} cars: ${consist}`
-      : "Consist unavailable";
+      : "🚂 Consist unavailable";
 
     fragment.querySelector(".train-number").textContent = train.orig_train || train.trainno || "Unknown";
     fragment.querySelector(".train-consist").textContent = consistLabel;
