@@ -203,7 +203,7 @@ h2 {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  align-items: start;
+  align-items: baseline;
 }
 
 .train-label,
@@ -217,20 +217,21 @@ h2 {
   font-size: 1.25rem;
 }
 
-.train-identifiers {
-  display: grid;
-  justify-items: end;
-  gap: 4px;
+.train-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .train-consist {
   margin: 0;
-  max-width: 18ch;
+  max-width: 20ch;
   font-family: Arial, sans-serif;
   font-size: 0.8rem;
   line-height: 1.35;
   text-align: right;
   color: var(--muted);
+  margin-left: auto;
 }
 
 .train-time {
