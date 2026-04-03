@@ -8,16 +8,21 @@
   </head>
   <body>
     <main class="app-shell">
-      <section class="hero">
-        <p class="eyebrow">SEPTA Regional Rail</p>
-        <h1>Paoli-Thorndale Line</h1>
-        <p class="intro">
-          Pick which station is the origin and which is the destination, then
-          see the next arriving trains from SEPTA's live Next To Arrive feed.
-        </p>
-      </section>
-
       <section class="controls-card">
+        <p class="controls-title">Next 3 Trains</p>
+
+        <div class="line-switcher" aria-label="Choose a Regional Rail line">
+          <button class="line-button is-active" type="button" data-line="paoliThorndale">
+            Paoli/Thorndale
+          </button>
+          <button class="line-button" type="button" data-line="manayunkNorristown">
+            Manayunk/Norristown
+          </button>
+          <button class="line-button" type="button" data-line="westTrenton">
+            West Trenton
+          </button>
+        </div>
+
         <form id="trip-form" class="trip-form">
           <label class="field">
             <span>Origin</span>
@@ -69,11 +74,11 @@
     <template id="train-card-template">
       <article class="train-card">
         <div class="train-card-top">
-          <div class="train-heading">
-            <p class="train-label">Train</p>
+          <p class="train-label">Train</p>
+          <div class="train-identifiers">
             <p class="train-number"></p>
+            <p class="train-consist"></p>
           </div>
-          <p class="train-consist"></p>
         </div>
         <p class="train-time"></p>
         <div class="details-grid">

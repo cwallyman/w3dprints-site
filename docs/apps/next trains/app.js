@@ -1,17 +1,95 @@
-const STATIONS = {
-  marketEast: {
-    label: "Jefferson",
-    apiName: "Market East",
+const LINE_CONFIGS = {
+  paoliThorndale: {
+    title: "Paoli/Thorndale Line",
+    defaultOriginId: "marketEast",
+    defaultDestinationId: "paoli",
+    stations: [
+      { id: "thorndale", label: "Thorndale", apiName: "Thorndale" },
+      { id: "downingtown", label: "Downingtown", apiName: "Downingtown" },
+      { id: "whitford", label: "Whitford", apiName: "Whitford" },
+      { id: "exton", label: "Exton", apiName: "Exton" },
+      { id: "malvern", label: "Malvern", apiName: "Malvern" },
+      { id: "paoli", label: "Paoli", apiName: "Paoli" },
+      { id: "daylesford", label: "Daylesford", apiName: "Daylesford" },
+      { id: "berwyn", label: "Berwyn", apiName: "Berwyn" },
+      { id: "devon", label: "Devon", apiName: "Devon" },
+      { id: "strafford", label: "Strafford", apiName: "Strafford" },
+      { id: "wayne", label: "Wayne", apiName: "Wayne" },
+      { id: "stDavids", label: "St. Davids", apiName: "St. Davids" },
+      { id: "radnor", label: "Radnor", apiName: "Radnor" },
+      { id: "villanova", label: "Villanova", apiName: "Villanova" },
+      { id: "rosemont", label: "Rosemont", apiName: "Rosemont" },
+      { id: "brynMawr", label: "Bryn Mawr", apiName: "Bryn Mawr" },
+      { id: "haverford", label: "Haverford", apiName: "Haverford" },
+      { id: "ardmore", label: "Ardmore", apiName: "Ardmore" },
+      { id: "wynnewood", label: "Wynnewood", apiName: "Wynnewood" },
+      { id: "narberth", label: "Narberth", apiName: "Narberth" },
+      { id: "merion", label: "Merion", apiName: "Merion" },
+      { id: "overbrook", label: "Overbrook", apiName: "Overbrook" },
+      { id: "thirtiethStreet", label: "30th Street Station", apiName: "30th Street Station" },
+      { id: "suburbanStation", label: "Suburban Station", apiName: "Suburban Station" },
+      { id: "marketEast", label: "Jefferson", apiName: "Market East" },
+      { id: "templeUniversity", label: "Temple University", apiName: "Temple U" },
+    ],
   },
-  paoli: {
-    label: "Paoli",
-    apiName: "Paoli",
+  manayunkNorristown: {
+    title: "Manayunk/Norristown Line",
+    defaultOriginId: "marketEast",
+    defaultDestinationId: "norristownTc",
+    stations: [
+      { id: "norristownElmSt", label: "Norristown - Elm St", apiName: "Elm St" },
+      { id: "mainSt", label: "Main St", apiName: "Main St" },
+      { id: "norristownTc", label: "Norristown Transit Center", apiName: "Norristown TC" },
+      { id: "conshohocken", label: "Conshohocken", apiName: "Conshohocken" },
+      { id: "springMill", label: "Spring Mill", apiName: "Spring Mill" },
+      { id: "miquon", label: "Miquon", apiName: "Miquon" },
+      { id: "ivyRidge", label: "Ivy Ridge", apiName: "Ivy Ridge" },
+      { id: "manayunk", label: "Manayunk", apiName: "Manayunk" },
+      { id: "wissahickon", label: "Wissahickon", apiName: "Wissahickon" },
+      { id: "eastFalls", label: "East Falls", apiName: "East Falls" },
+      { id: "allegheny", label: "Allegheny", apiName: "Allegheny" },
+      { id: "northBroad", label: "North Broad", apiName: "North Broad St" },
+      { id: "templeUniversity", label: "Temple University", apiName: "Temple U" },
+      { id: "marketEast", label: "Jefferson", apiName: "Market East" },
+      { id: "suburbanStation", label: "Suburban Station", apiName: "Suburban Station" },
+      { id: "thirtiethStreet", label: "30th Street Station", apiName: "30th Street Station" },
+      { id: "pennMedicine", label: "Penn Medicine Station", apiName: "Penn Medicine Station" },
+    ],
+  },
+  westTrenton: {
+    title: "West Trenton Line",
+    defaultOriginId: "marketEast",
+    defaultDestinationId: "yardley",
+    stations: [
+      { id: "westTrenton", label: "West Trenton", apiName: "West Trenton" },
+      { id: "yardley", label: "Yardley", apiName: "Yardley" },
+      { id: "woodbourne", label: "Woodbourne", apiName: "Woodbourne" },
+      { id: "langhorne", label: "Langhorne", apiName: "Langhorne" },
+      { id: "neshaminyFalls", label: "Neshaminy Falls", apiName: "Neshaminy Falls" },
+      { id: "trevose", label: "Trevose", apiName: "Trevose" },
+      { id: "somerton", label: "Somerton", apiName: "Somerton" },
+      { id: "forestHills", label: "Forest Hills", apiName: "Forest Hills" },
+      { id: "philmont", label: "Philmont", apiName: "Philmont" },
+      { id: "bethayres", label: "Bethayres", apiName: "Bethayres" },
+      { id: "meadowbrook", label: "Meadowbrook", apiName: "Meadowbrook" },
+      { id: "rydal", label: "Rydal", apiName: "Rydal" },
+      { id: "noble", label: "Noble", apiName: "Noble" },
+      { id: "jenkintownWyncote", label: "Jenkintown-Wyncote", apiName: "Jenkintown-Wyncote" },
+      { id: "fernRock", label: "Fern Rock Transit Center", apiName: "Fern Rock TC" },
+      { id: "templeUniversity", label: "Temple University", apiName: "Temple U" },
+      { id: "marketEast", label: "Jefferson", apiName: "Market East" },
+      { id: "suburbanStation", label: "Suburban Station", apiName: "Suburban Station" },
+      { id: "thirtiethStreet", label: "30th Street Station", apiName: "30th Street Station" },
+    ],
   },
 };
+
+const DEFAULT_LINE_ID = "paoliThorndale";
 
 const LOCAL_PROXY_ORIGIN = "http://127.0.0.1:8000";
 const PRODUCTION_PROXY_ORIGIN = "https://api.w3dprints.net";
 
+const lineButtons = Array.from(document.querySelectorAll(".line-button"));
 const originSelect = document.querySelector("#origin");
 const destinationSelect = document.querySelector("#destination");
 const tripForm = document.querySelector("#trip-form");
@@ -25,20 +103,76 @@ const trainCardTemplate = document.querySelector("#train-card-template");
 
 let autoRefreshEnabled = true;
 let refreshTimer = null;
+let currentLineId = DEFAULT_LINE_ID;
+
+function getCurrentLineConfig() {
+  return LINE_CONFIGS[currentLineId];
+}
+
+function getStationMap() {
+  return Object.fromEntries(getCurrentLineConfig().stations.map((station) => [station.id, station]));
+}
+
+function renderStationOptions() {
+  const { stations, defaultOriginId, defaultDestinationId } = getCurrentLineConfig();
+  const markup = stations.map(
+    (station) => `<option value="${station.id}">${station.label}</option>`
+  ).join("");
+
+  originSelect.innerHTML = markup;
+  destinationSelect.innerHTML = markup;
+  originSelect.value = defaultOriginId;
+  destinationSelect.value = defaultDestinationId;
+}
+
+function getFallbackStationId(excludedId, preferredId) {
+  const stationMap = getStationMap();
+  const { stations } = getCurrentLineConfig();
+
+  if (preferredId && preferredId !== excludedId && stationMap[preferredId]) {
+    return preferredId;
+  }
+
+  const fallbackStation = stations.find((station) => station.id !== excludedId);
+  return fallbackStation ? fallbackStation.id : excludedId;
+}
+
 function ensureDifferentStations(changedField) {
+  const { defaultOriginId, defaultDestinationId } = getCurrentLineConfig();
+
   if (originSelect.value === destinationSelect.value) {
     if (changedField === "origin") {
-      destinationSelect.value = originSelect.value === "marketEast" ? "paoli" : "marketEast";
+      destinationSelect.value = getFallbackStationId(originSelect.value, defaultDestinationId);
     } else {
-      originSelect.value = destinationSelect.value === "marketEast" ? "paoli" : "marketEast";
+      originSelect.value = getFallbackStationId(destinationSelect.value, defaultOriginId);
     }
   }
 }
 
 function updateRouteSummary() {
-  const origin = STATIONS[originSelect.value].label;
-  const destination = STATIONS[destinationSelect.value].label;
+  const stationMap = getStationMap();
+  const origin = stationMap[originSelect.value].label;
+  const destination = stationMap[destinationSelect.value].label;
   routeSummary.textContent = `${origin} to ${destination}`;
+}
+
+function updateLineButtons() {
+  lineButtons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.line === currentLineId);
+  });
+}
+
+function switchLine(nextLineId) {
+  if (!LINE_CONFIGS[nextLineId] || nextLineId === currentLineId) {
+    return;
+  }
+
+  currentLineId = nextLineId;
+  renderStationOptions();
+  updateLineButtons();
+  updateRouteSummary();
+  refreshTrains();
+  restartAutoRefresh();
 }
 
 function setStatus(message) {
@@ -187,8 +321,9 @@ async function fetchNextToArrive(origin, destination) {
 }
 
 async function refreshTrains() {
-  const origin = STATIONS[originSelect.value];
-  const destination = STATIONS[destinationSelect.value];
+  const stationMap = getStationMap();
+  const origin = stationMap[originSelect.value];
+  const destination = stationMap[destinationSelect.value];
 
   updateRouteSummary();
   setStatus("Loading live train data...");
@@ -250,6 +385,14 @@ autoRefreshButton.addEventListener("click", () => {
   restartAutoRefresh();
 });
 
+lineButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    switchLine(button.dataset.line);
+  });
+});
+
+renderStationOptions();
+updateLineButtons();
 updateRouteSummary();
 refreshTrains();
 restartAutoRefresh();
