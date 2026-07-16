@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Point Cloud Viewer</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--border:#30363d;
+  --text:#e6edf3;--muted:#8b949e;--accent:#58a6ff;
+  --success:#3fb950;--warn:#d29922;--danger:#f85149;
+  --r:10px;
+}
+html,body{height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+
+/* ── Layout ── */
+#app{display:flex;flex-direction:column;height:100vh}
+header{
+  display:flex;align-items:center;gap:12px;padding:12px 20px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  flex-shrink:0;z-index:10;
+}
+.logo{font-size:18px;font-weight:700;letter-spacing:-.5px}
+.logo span{color:var(--accent)}
+#file-badge{
+  font-size:12px;padding:3px 10px;border-radius:99px;
+  background:var(--border);color:var(--muted);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:240px;
+}
+.spacer{flex:1}
+
+/* ── Toolbar ── */
+#toolbar{
+  display:flex;align-items:center;gap:8px;padding:8px 16px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  flex-shrink:0;flex-wrap:wrap;
+}
+.tb-label{font-size:12px;color:var(--muted);white-space:nowrap}
+select,input[type=range]{
+  background:var(--bg);border:1px solid var(--border);color:var(--text);
+  border-radius:6px;font-size:12px;padding:4px 8px;cursor:pointer;
+}
+select:focus,input[type=range]:focus{outline:none;border-color:var(--accent)}
+input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
+.tb-sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.btn{
+  display:inline-flex;align-items:center;gap:6px;padding:5px 12px;
+  border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;
+  border:1px solid var(--border);background:var(--bg);color:var(--text);
+  transition:border-color .15s,background .15s;white-space:nowrap;
+}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ── Main area ── */
+#main{flex:1;position:relative;overflow:hidden}
+#canvas{display:block;width:100%;height:100%}
+
+/* ── Drop overlay ── */
+#drop-overlay{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:16px;
+  background:var(--bg);transition:background .2s;z-index:5;
+}
+#drop-overlay.drag-over{background:rgba(88,166,255,.08)}
+#drop-overlay.hidden{display:none}
+.drop-icon{font-size:56px;line-height:1}
+.drop-title{font-size:22px;font-weight:600}
+.drop-sub{font-size:14px;color:var(--muted);text-align:center;line-height:1.6}
+.drop-btn{
+  padding:10px 24px;border-radius:8px;font-size:14px;font-weight:500;
+  background:var(--accent);color:#fff;border:none;cursor:pointer;
+  transition:opacity .15s;
+}
+.drop-btn:hover{opacity:.85}
+#file-input{display:none}
+.dashed-box{
+  border:2px dashed var(--border);border-radius:16px;
+  padding:48px 56px;display:flex;flex-direction:column;
+  align-items:center;gap:16px;transition:border-color .2s;
+}
+#drop-overlay.drag-over .dashed-box{border-color:var(--accent)}
+.supported{font-size:11px;color:var(--muted)}
+
+/* ── Progress overlay ── */
+#progress-overlay{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:20px;
+  background:rgba(13,17,23,.92);z-index:6;
+}
+#progress-overlay.hidden{display:none}
+.prog-title{font-size:16px;font-weight:600}
+#prog-bar-bg{width:320px;height:8px;background:var(--border);border-radius:99px;overflow:hidden}
+#prog-bar{height:100%;background:var(--accent);border-radius:99px;width:0%;transition:width .2s}
+#prog-label{font-size:13px;color:var(--muted)}
+
+/* ── Stats panel ── */
+#stats{
+  position:absolute;bottom:16px;left:16px;
+  background:rgba(22,27,34,.9);border:1px solid var(--border);
+  border-radius:var(--r);padding:12px 16px;font-size:12px;
+  line-height:1.8;backdrop-filter:blur(6px);min-width:180px;
+}
+#stats.hidden{display:none}
+#stats .stat-row{display:flex;justify-content:space-between;gap:16px}
+#stats .stat-val{color:var(--accent);font-weight:600;text-align:right}
+
+/* ── Error toast ── */
+#toast{
+  position:absolute;top:16px;left:50%;transform:translateX(-50%);
+  background:#3a1a1a;border:1px solid var(--danger);border-radius:8px;
+  color:var(--danger);padding:10px 18px;font-size:13px;z-index:20;
+  transition:opacity .3s;
+}
+#toast.hidden{display:none}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="logo">Point<span>Cloud</span></div>
+    <div id="file-badge">No file loaded</div>
+    <div class="spacer"></div>
+    <button class="btn" id="open-btn">📂 Open File</button>
+    <input type="file" id="file-input" accept=".las">
+  </header>
+
+  <div id="toolbar" style="display:none">
+    <span class="tb-label">Color</span>
+    <select id="color-mode">
+      <option value="elevation">Elevation</option>
+      <option value="intensity">Intensity</option>
+      <option value="rgb">RGB (if available)</option>
+    </select>
+    <div class="tb-sep"></div>
+    <span class="tb-label">Point size</span>
+    <input type="range" id="point-size" min="0.5" max="5" step="0.5" value="1.5">
+    <div class="tb-sep"></div>
+    <span class="tb-label">Budget</span>
+    <select id="point-budget">
+      <option value="1000000">1M pts</option>
+      <option value="3000000" selected>3M pts</option>
+      <option value="5000000">5M pts</option>
+      <option value="10000000">10M pts (slow)</option>
+    </select>
+    <div class="tb-sep"></div>
+    <button class="btn" id="reset-cam">⟳ Reset View</button>
+    <button class="btn" id="open-btn2">📂 New File</button>
+  </div>
+
+  <div id="main">
+    <canvas id="canvas"></canvas>
+
+    <!-- Drop overlay -->
+    <div id="drop-overlay">
+      <div class="dashed-box">
+        <div class="drop-icon">🗂</div>
+        <div class="drop-title">Drop a LAS file here</div>
+        <div class="drop-sub">
+          Your file is processed entirely in your browser.<br>
+          Nothing is uploaded to any server.
+        </div>
+        <button class="drop-btn" id="drop-browse-btn">Browse for file…</button>
+        <div class="supported">Supported: LAS 1.0 – 1.4 · All point formats · Up to several GB</div>
+      </div>
+    </div>
+
+    <!-- Progress overlay -->
+    <div id="progress-overlay" class="hidden">
+      <div class="prog-title">Loading point cloud…</div>
+      <div id="prog-bar-bg"><div id="prog-bar"></div></div>
+      <div id="prog-label">Reading file…</div>
+    </div>
+
+    <!-- Stats -->
+    <div id="stats" class="hidden">
+      <div class="stat-row"><span>Points loaded</span><span class="stat-val" id="s-count">—</span></div>
+      <div class="stat-row"><span>Original count</span><span class="stat-val" id="s-total">—</span></div>
+      <div class="stat-row"><span>Width (X)</span><span class="stat-val" id="s-w">—</span></div>
+      <div class="stat-row"><span>Length (Y)</span><span class="stat-val" id="s-l">—</span></div>
+      <div class="stat-row"><span>Height (Z)</span><span class="stat-val" id="s-h">—</span></div>
+      <div class="stat-row"><span>Format</span><span class="stat-val" id="s-fmt">—</span></div>
+      <div class="stat-row"><span>Has RGB</span><span class="stat-val" id="s-rgb">—</span></div>
+    </div>
+
+    <div id="toast" class="hidden"></div>
+  </div>
+</div>
+
+<!-- Three.js via importmap -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Globals ──────────────────────────────────────────────────────────────────
+let renderer, scene, camera, controls, pointsMesh;
+let currentData = null;
+
+// ── Three.js setup ────────────────────────────────────────────────────────────
+function initThree() {
+  const canvas = document.getElementById('canvas');
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0d1117);
+
+  camera = new THREE.PerspectiveCamera(60, 1, 0.01, 100000);
+  camera.position.set(0, 50, 100);
+
+  controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.screenSpacePanning = false;
+
+  // Axis helper (small, bottom-right)
+  const axes = new THREE.AxesHelper(5);
+  scene.add(axes);
+
+  new ResizeObserver(onResize).observe(canvas.parentElement);
+  onResize();
+  animate();
+}
+
+function onResize() {
+  const el = renderer.domElement.parentElement;
+  const w = el.clientWidth, h = el.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ── LAS Parser ────────────────────────────────────────────────────────────────
+function parseLAS(buffer, budget) {
+  const dv = new DataView(buffer);
+
+  // Signature
+  const sig = String.fromCharCode(dv.getUint8(0),dv.getUint8(1),dv.getUint8(2),dv.getUint8(3));
+  if (sig !== 'LASF') throw new Error('Not a valid LAS file (bad signature)');
+
+  const versionMinor  = dv.getUint8(25);
+  const headerSize    = dv.getUint16(94, true);
+  const pointOffset   = dv.getUint32(96, true);
+  const pointFormat   = dv.getUint8(104);
+  const pointLen      = dv.getUint16(105, true);
+
+  // Point count: LAS ≥1.4 uses 64-bit field at offset 247
+  let totalPoints;
+  const legacy = dv.getUint32(107, true);
+  if (versionMinor >= 4 && legacy === 0) {
+    const lo = dv.getUint32(247, true);
+    const hi = dv.getUint32(251, true);
+    totalPoints = hi * 0x100000000 + lo;
+  } else {
+    totalPoints = legacy;
+  }
+
+  const sx = dv.getFloat64(131,true), sy = dv.getFloat64(139,true), sz = dv.getFloat64(147,true);
+  const ox = dv.getFloat64(155,true), oy = dv.getFloat64(163,true), oz = dv.getFloat64(171,true);
+  const maxX = dv.getFloat64(179,true), minX = dv.getFloat64(187,true);
+  const maxY = dv.getFloat64(195,true), minY = dv.getFloat64(203,true);
+  const maxZ = dv.getFloat64(211,true), minZ = dv.getFloat64(219,true);
+
+  // Has colour?
+  const hasRGB = [2,3,5,7,8,10].includes(pointFormat);
+  // Byte offset of RGB within a point record
+  // Formats 0-5 (LAS 1.0-1.3): intensity@12(2), flags@14, class@15, scan@16, user@17, srcId@18(2)=20
+  // Format 2: RGB@20   Format 3: GPS@20(8), RGB@28   Format 5: GPS@20(8), RGB@28
+  // Formats 6-10 (LAS 1.4): intensity@12(2), returns@14(2), flags@16, class@17, user@18, scan@19(2), srcId@21(2), GPS@23(8)=31
+  // Format 7: RGB@30   Format 8: RGB+NIR@30   Format 10: waveform@30(29), RGB@59
+  let rgbOff;
+  if (pointFormat === 2) rgbOff = 20;
+  else if (pointFormat === 3 || pointFormat === 5) rgbOff = 28;
+  else if (pointFormat === 7 || pointFormat === 8) rgbOff = 30;
+  else if (pointFormat === 10) rgbOff = 59;
+
+  // Subsampling
+  const step = totalPoints > budget ? Math.ceil(totalPoints / budget) : 1;
+  const count = Math.ceil(totalPoints / step);
+  const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  const inten = new Float32Array(count);
+
+  // Center for precision
+  const cx = (maxX + minX) / 2, cy = (maxY + minY) / 2, cz = (maxZ + minZ) / 2;
+
+  let n = 0;
+  for (let i = 0; i < totalPoints && n < count; i += step) {
+    const base = pointOffset + i * pointLen;
+    if (base + pointLen > buffer.byteLength) break;
+
+    const xi = dv.getInt32(base,    true);
+    const yi = dv.getInt32(base+4,  true);
+    const zi = dv.getInt32(base+8,  true);
+    const rx = xi * sx + ox - cx;
+    const ry = yi * sy + oy - cy;
+    const rz = zi * sz + oz - cz;
+
+    // Three.js Y-up: swap Y↔Z, negate new Z
+    pos[n*3]   = rx;
+    pos[n*3+1] = rz;
+    pos[n*3+2] = -ry;
+
+    inten[n] = dv.getUint16(base+12, true) / 65535;
+
+    if (hasRGB && rgbOff != null) {
+      col[n*3]   = dv.getUint16(base+rgbOff,   true) / 65535;
+      col[n*3+1] = dv.getUint16(base+rgbOff+2, true) / 65535;
+      col[n*3+2] = dv.getUint16(base+rgbOff+4, true) / 65535;
+    }
+    n++;
+  }
+
+  return {
+    pos, col, inten,
+    count: n, totalPoints, step,
+    hasRGB,
+    bounds: { minX,maxX, minY,maxY, minZ,maxZ },
+    rangeZ: maxZ - minZ,
+    minZ, maxZ,
+    format: pointFormat,
+    versionMinor,
+  };
+}
+
+// ── Colormaps ─────────────────────────────────────────────────────────────────
+// Jet colormap: t in [0,1] → [r,g,b] each in [0,1]
+function jet(t) {
+  t = Math.max(0, Math.min(1, t));
+  const r = Math.max(0, Math.min(1, 1.5 - Math.abs(4*t - 3)));
+  const g = Math.max(0, Math.min(1, 1.5 - Math.abs(4*t - 2)));
+  const b = Math.max(0, Math.min(1, 1.5 - Math.abs(4*t - 1)));
+  return [r, g, b];
+}
+
+function buildColors(data, mode) {
+  const { pos, col, inten, count, minZ, rangeZ } = data;
+  const c = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    let r, g, b;
+    if (mode === 'rgb' && data.hasRGB) {
+      r = col[i*3]; g = col[i*3+1]; b = col[i*3+2];
+    } else if (mode === 'intensity') {
+      const v = inten[i];
+      r = g = b = v;
+    } else {
+      // elevation: pos[i*3+1] is Y (up) in three.js = original Z
+      const elev = pos[i*3+1]; // already centered so offset doesn't matter for range
+      const t = rangeZ > 0 ? (elev - (minZ - (data.bounds.minZ+data.bounds.maxZ)/2 + data.bounds.minZ)) / rangeZ : 0.5;
+      // Simpler: just normalise Y across the dataset
+      [r, g, b] = jet(t);
+    }
+    c[i*3] = r; c[i*3+1] = g; c[i*3+2] = b;
+  }
+  return c;
+}
+
+// Normalise elevation colors properly
+function buildElevColors(data) {
+  const { pos, count } = data;
+  // Find Y min/max (which is elevation in three.js coords)
+  let ymin = Infinity, ymax = -Infinity;
+  for (let i = 0; i < count; i++) {
+    const y = pos[i*3+1];
+    if (y < ymin) ymin = y;
+    if (y > ymax) ymax = y;
+  }
+  const range = ymax - ymin || 1;
+  const c = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const t = (pos[i*3+1] - ymin) / range;
+    const [r, g, b] = jet(t);
+    c[i*3] = r; c[i*3+1] = g; c[i*3+2] = b;
+  }
+  return c;
+}
+
+// ── Point cloud rendering ─────────────────────────────────────────────────────
+function buildMesh(data, colorMode, pointSize) {
+  if (pointsMesh) { scene.remove(pointsMesh); pointsMesh.geometry.dispose(); pointsMesh.material.dispose(); }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(data.pos.slice(0, data.count*3), 3));
+
+  const colors = colorMode === 'elevation'
+    ? buildElevColors(data)
+    : buildColors(data, colorMode);
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const mat = new THREE.PointsMaterial({
+    size: pointSize,
+    vertexColors: true,
+    sizeAttenuation: true,
+  });
+
+  pointsMesh = new THREE.Points(geo, mat);
+  scene.add(pointsMesh);
+}
+
+function resetCamera(data) {
+  const { bounds } = data;
+  const cx = (bounds.maxX + bounds.minX) / 2;
+  const cy = (bounds.maxZ + bounds.minZ) / 2; // elevation = three Y
+  const cz = 0;
+  const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY, bounds.maxZ - bounds.minZ);
+  controls.target.set(0, cy, 0);
+  camera.position.set(0, cy + span * 0.4, span * 0.8);
+  controls.update();
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function setProgress(pct, label) {
+  document.getElementById('prog-bar').style.width = pct + '%';
+  document.getElementById('prog-label').textContent = label;
+}
+
+function showError(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = '⚠ ' + msg;
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 6000);
+}
+
+function fmt(n) { return Number(n.toFixed(2)).toLocaleString(); }
+function fmtPts(n) { return n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : n.toString(); }
+
+function updateStats(data) {
+  const { bounds } = data;
+  document.getElementById('s-count').textContent = fmtPts(data.count);
+  document.getElementById('s-total').textContent = fmtPts(data.totalPoints) + (data.step > 1 ? ` (1:${data.step} sample)` : '');
+  document.getElementById('s-w').textContent = fmt(bounds.maxX - bounds.minX) + ' m';
+  document.getElementById('s-l').textContent = fmt(bounds.maxY - bounds.minY) + ' m';
+  document.getElementById('s-h').textContent = fmt(bounds.maxZ - bounds.minZ) + ' m';
+  document.getElementById('s-fmt').textContent = `LAS 1.${data.versionMinor} · Format ${data.format}`;
+  document.getElementById('s-rgb').textContent = data.hasRGB ? '✓ Yes' : '✗ No';
+  document.getElementById('stats').classList.remove('hidden');
+}
+
+// ── File loading ──────────────────────────────────────────────────────────────
+async function loadFile(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'laz') {
+    showError('LAZ files require decompression. Please convert to LAS first using CloudCompare (free) or las2las, then reload.');
+    return;
+  }
+  if (ext !== 'las') {
+    showError('Please open a .las file.');
+    return;
+  }
+
+  // Show progress
+  document.getElementById('drop-overlay').classList.add('hidden');
+  document.getElementById('progress-overlay').classList.remove('hidden');
+  document.getElementById('toolbar').style.display = 'none';
+  setProgress(5, 'Reading file…');
+
+  await new Promise(r => setTimeout(r, 20)); // allow UI to update
+
+  try {
+    const budget = parseInt(document.getElementById('point-budget')?.value || '3000000');
+
+    setProgress(20, `Reading ${(file.size/1024/1024).toFixed(1)} MB…`);
+    const buffer = await file.arrayBuffer();
+
+    setProgress(55, 'Parsing point records…');
+    await new Promise(r => setTimeout(r, 20));
+
+    const data = parseLAS(buffer, budget);
+    currentData = data;
+
+    setProgress(80, 'Building geometry…');
+    await new Promise(r => setTimeout(r, 20));
+
+    const colorMode = document.getElementById('color-mode')?.value || 'elevation';
+    const pointSize = parseFloat(document.getElementById('point-size')?.value || '1.5');
+    buildMesh(data, colorMode, pointSize);
+    resetCamera(data);
+    updateStats(data);
+
+    setProgress(100, 'Done!');
+    await new Promise(r => setTimeout(r, 200));
+
+    document.getElementById('progress-overlay').classList.add('hidden');
+    document.getElementById('toolbar').style.display = 'flex';
+    document.getElementById('file-badge').textContent = `${file.name}  ·  ${fmtPts(data.count)} pts`;
+
+  } catch(e) {
+    document.getElementById('progress-overlay').classList.add('hidden');
+    document.getElementById('drop-overlay').classList.remove('hidden');
+    showError(e.message);
+    console.error(e);
+  }
+}
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+const overlay = document.getElementById('drop-overlay');
+const fileInput = document.getElementById('file-input');
+
+['dragenter','dragover'].forEach(ev => {
+  overlay.addEventListener(ev, e => { e.preventDefault(); overlay.classList.add('drag-over'); });
+  document.getElementById('main').addEventListener(ev, e => { e.preventDefault(); });
+});
+['dragleave','drop'].forEach(ev => overlay.addEventListener(ev, () => overlay.classList.remove('drag-over')));
+
+overlay.addEventListener('drop', e => {
+  e.preventDefault();
+  loadFile(e.dataTransfer.files[0]);
+});
+document.getElementById('main').addEventListener('drop', e => {
+  e.preventDefault();
+  if (!overlay.classList.contains('hidden')) loadFile(e.dataTransfer.files[0]);
+});
+document.getElementById('drop-browse-btn').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => loadFile(fileInput.files[0]));
+
+// Header / toolbar open buttons
+['open-btn','open-btn2'].forEach(id => {
+  document.getElementById(id)?.addEventListener('click', () => fileInput.click());
+});
+
+// Reset camera
+document.getElementById('reset-cam')?.addEventListener('click', () => {
+  if (currentData) resetCamera(currentData);
+});
+
+// Color mode
+document.getElementById('color-mode')?.addEventListener('change', e => {
+  if (!currentData) return;
+  const ps = parseFloat(document.getElementById('point-size').value);
+  buildMesh(currentData, e.target.value, ps);
+});
+
+// Point size
+document.getElementById('point-size')?.addEventListener('input', e => {
+  if (pointsMesh) pointsMesh.material.size = parseFloat(e.target.value);
+});
+
+// Point budget: requires reload — show hint
+document.getElementById('point-budget')?.addEventListener('change', () => {
+  if (currentData) showError('Point budget changed — reload the file to apply.');
+});
+
+// Also allow drop anywhere on main canvas when a file is loaded
+document.getElementById('canvas').addEventListener('dragover', e => e.preventDefault());
+document.getElementById('canvas').addEventListener('drop', e => {
+  e.preventDefault();
+  loadFile(e.dataTransfer.files[0]);
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+initThree();
+</script>
+</body>
+</html>
