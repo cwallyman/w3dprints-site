@@ -195,7 +195,9 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
 {
   "imports": {
     "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+    "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/",
+    "@loaders.gl/core": "https://esm.sh/@loaders.gl/core@4.4.3?bundle",
+    "@loaders.gl/las": "https://esm.sh/@loaders.gl/las@4.4.3?bundle"
   }
 }
 </script>
@@ -203,6 +205,8 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { parse } from '@loaders.gl/core';
+import { LASLoader } from '@loaders.gl/las';
 
 // ── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, camera, controls, pointsMesh;
@@ -254,32 +258,11 @@ function animate() {
 function parseLAS(buffer, budget) {
   const dv = new DataView(buffer);
 
-  // Signature
-  const sig = String.fromCharCode(dv.getUint8(0),dv.getUint8(1),dv.getUint8(2),dv.getUint8(3));
-  if (sig !== 'LASF') throw new Error('Not a valid LAS file (bad signature)');
-
-  const versionMinor  = dv.getUint8(25);
-  const headerSize    = dv.getUint16(94, true);
-  const pointOffset   = dv.getUint32(96, true);
-  const pointFormat   = dv.getUint8(104);
-  const pointLen      = dv.getUint16(105, true);
-
-  // Point count: LAS ≥1.4 uses 64-bit field at offset 247
-  let totalPoints;
-  const legacy = dv.getUint32(107, true);
-  if (versionMinor >= 4 && legacy === 0) {
-    const lo = dv.getUint32(247, true);
-    const hi = dv.getUint32(251, true);
-    totalPoints = hi * 0x100000000 + lo;
-  } else {
-    totalPoints = legacy;
-  }
-
-  const sx = dv.getFloat64(131,true), sy = dv.getFloat64(139,true), sz = dv.getFloat64(147,true);
-  const ox = dv.getFloat64(155,true), oy = dv.getFloat64(163,true), oz = dv.getFloat64(171,true);
-  const maxX = dv.getFloat64(179,true), minX = dv.getFloat64(187,true);
-  const maxY = dv.getFloat64(195,true), minY = dv.getFloat64(203,true);
-  const maxZ = dv.getFloat64(211,true), minZ = dv.getFloat64(219,true);
+  const header = readLASHeader(buffer);
+  const {
+    versionMinor, pointOffset, pointFormat, pointLen, totalPoints,
+    sx, sy, sz, ox, oy, oz, maxX, minX, maxY, minY, maxZ, minZ
+  } = header;
 
   // Has colour?
   const hasRGB = [2,3,5,7,8,10].includes(pointFormat);
@@ -341,6 +324,129 @@ function parseLAS(buffer, budget) {
     format: pointFormat,
     versionMinor,
   };
+}
+
+function readLASHeader(buffer) {
+  const dv = new DataView(buffer);
+  const sig = String.fromCharCode(dv.getUint8(0),dv.getUint8(1),dv.getUint8(2),dv.getUint8(3));
+  if (sig !== 'LASF') throw new Error('Not a valid LAS/LAZ file (bad signature)');
+
+  const versionMinor = dv.getUint8(25);
+  const pointOffset = dv.getUint32(96, true);
+  const pointFormat = dv.getUint8(104) & 0b00111111;
+  const pointLen = dv.getUint16(105, true);
+  const legacy = dv.getUint32(107, true);
+  let totalPoints = legacy;
+
+  if (versionMinor >= 4 && buffer.byteLength >= 255 && legacy === 0) {
+    const lo = dv.getUint32(247, true);
+    const hi = dv.getUint32(251, true);
+    totalPoints = hi * 0x100000000 + lo;
+  }
+
+  return {
+    versionMinor,
+    pointOffset,
+    pointFormat,
+    pointLen,
+    totalPoints,
+    sx: dv.getFloat64(131,true),
+    sy: dv.getFloat64(139,true),
+    sz: dv.getFloat64(147,true),
+    ox: dv.getFloat64(155,true),
+    oy: dv.getFloat64(163,true),
+    oz: dv.getFloat64(171,true),
+    maxX: dv.getFloat64(179,true),
+    minX: dv.getFloat64(187,true),
+    maxY: dv.getFloat64(195,true),
+    minY: dv.getFloat64(203,true),
+    maxZ: dv.getFloat64(211,true),
+    minZ: dv.getFloat64(219,true),
+  };
+}
+
+async function parseLAZ(buffer, budget) {
+  const header = readLASHeader(buffer);
+  const skip = header.totalPoints > budget ? Math.ceil(header.totalPoints / budget) : 1;
+  const mesh = await parse(buffer, LASLoader, {
+    las: {
+      shape: 'mesh',
+      skip,
+      fp64: false,
+      colorDepth: 'auto',
+    },
+  });
+  return meshToPointData(mesh, header, skip);
+}
+
+function meshToPointData(mesh, header, step) {
+  const positionAttr = mesh.attributes?.POSITION || mesh.attributes?.positions;
+  if (!positionAttr?.value) throw new Error('LAZ decompression did not return point positions.');
+
+  const positions = positionAttr.value;
+  const count = Math.floor(positions.length / 3);
+  const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  const inten = new Float32Array(count);
+  const colorAttr = mesh.attributes?.COLOR_0 || mesh.attributes?.colors;
+  const colors = colorAttr?.value;
+  const colorSize = colorAttr?.size || 3;
+  const colorMax = colors ? detectColorMax(colors) : 1;
+  const hasRGB = Boolean(colors);
+  const bounds = mesh.header?.boundingBox
+    ? {
+      minX: mesh.header.boundingBox[0][0],
+      minY: mesh.header.boundingBox[0][1],
+      minZ: mesh.header.boundingBox[0][2],
+      maxX: mesh.header.boundingBox[1][0],
+      maxY: mesh.header.boundingBox[1][1],
+      maxZ: mesh.header.boundingBox[1][2],
+    }
+    : {
+      minX: header.minX, maxX: header.maxX,
+      minY: header.minY, maxY: header.maxY,
+      minZ: header.minZ, maxZ: header.maxZ,
+    };
+  const cx = (bounds.maxX + bounds.minX) / 2;
+  const cy = (bounds.maxY + bounds.minY) / 2;
+  const cz = (bounds.maxZ + bounds.minZ) / 2;
+
+  for (let i = 0; i < count; i++) {
+    const x = positions[i*3];
+    const y = positions[i*3+1];
+    const z = positions[i*3+2];
+    pos[i*3] = x - cx;
+    pos[i*3+1] = z - cz;
+    pos[i*3+2] = -(y - cy);
+    inten[i] = 0.5;
+
+    if (colors) {
+      col[i*3] = clamp01(colors[i*colorSize] / colorMax);
+      col[i*3+1] = clamp01(colors[i*colorSize+1] / colorMax);
+      col[i*3+2] = clamp01(colors[i*colorSize+2] / colorMax);
+    }
+  }
+
+  return {
+    pos, col, inten,
+    count,
+    totalPoints: header.totalPoints || count,
+    step,
+    hasRGB,
+    bounds,
+    rangeZ: bounds.maxZ - bounds.minZ,
+    minZ: bounds.minZ,
+    maxZ: bounds.maxZ,
+    format: header.pointFormat,
+    versionMinor: header.versionMinor,
+  };
+}
+
+function detectColorMax(colors) {
+  let max = 0;
+  const limit = Math.min(colors.length, 3000);
+  for (let i = 0; i < limit; i++) if (colors[i] > max) max = colors[i];
+  return max <= 1 ? 1 : max <= 255 ? 255 : 65535;
 }
 
 // ── Text point cloud converter ───────────────────────────────────────────────
@@ -636,12 +742,8 @@ function convertedName(fileName) {
 async function loadFile(file) {
   if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'laz') {
-    showError('LAZ decompression is not built in yet. Convert LAZ to LAS first, or load XYZ, PTS, CSV, TXT, or LAS.');
-    return;
-  }
-  if (!['las', 'xyz', 'pts', 'csv', 'txt'].includes(ext)) {
-    showError('Please open LAS, XYZ, PTS, CSV, or TXT point-cloud data.');
+  if (!['las', 'laz', 'xyz', 'pts', 'csv', 'txt'].includes(ext)) {
+    showError('Please open LAS, LAZ, XYZ, PTS, CSV, or TXT point-cloud data.');
     return;
   }
 
@@ -663,6 +765,13 @@ async function loadFile(file) {
       setProgress(55, 'Parsing point records...');
       await new Promise(r => setTimeout(r, 20));
       data = parseLAS(buffer, budget);
+      setDownload(null, '');
+    } else if (ext === 'laz') {
+      const buffer = await file.arrayBuffer();
+      setProgress(35, 'Loading LAZ decompressor...');
+      await new Promise(r => setTimeout(r, 20));
+      setProgress(55, 'Decompressing LAZ points...');
+      data = await parseLAZ(buffer, budget);
       setDownload(null, '');
     } else {
       const text = await file.text();
