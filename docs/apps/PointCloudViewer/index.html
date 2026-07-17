@@ -51,6 +51,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
   transition:border-color .15s,background .15s;white-space:nowrap;
 }
 .btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.hidden{display:none}
 
 /* ── Main area ── */
 #main{flex:1;position:relative;overflow:hidden}
@@ -122,8 +123,8 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
     <div class="logo">Point<span>Cloud</span></div>
     <div id="file-badge">No file loaded</div>
     <div class="spacer"></div>
-    <button class="btn" id="open-btn">📂 Open File</button>
-    <input type="file" id="file-input" accept=".las">
+    <button class="btn" id="open-btn">📂 Open / Convert</button>
+    <input type="file" id="file-input" accept=".las,.xyz,.pts,.csv,.txt,.laz">
   </header>
 
   <div id="toolbar" style="display:none">
@@ -146,6 +147,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
     </select>
     <div class="tb-sep"></div>
     <button class="btn" id="reset-cam">⟳ Reset View</button>
+    <button class="btn hidden" id="download-las">⬇ Download LAS</button>
     <button class="btn" id="open-btn2">📂 New File</button>
   </div>
 
@@ -156,13 +158,13 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
     <div id="drop-overlay">
       <div class="dashed-box">
         <div class="drop-icon">🗂</div>
-        <div class="drop-title">Drop a LAS file here</div>
+        <div class="drop-title">Drop a LAS or text point cloud here</div>
         <div class="drop-sub">
-          Your file is processed entirely in your browser.<br>
+          XYZ, PTS, CSV, and TXT files convert to LAS in your browser.<br>
           Nothing is uploaded to any server.
         </div>
         <button class="drop-btn" id="drop-browse-btn">Browse for file…</button>
-        <div class="supported">Supported: LAS 1.0 – 1.4 · All point formats · Up to several GB</div>
+        <div class="supported">Supported: LAS 1.0 – 1.4 · XYZ · PTS · CSV · TXT</div>
       </div>
     </div>
 
@@ -205,6 +207,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 // ── Globals ──────────────────────────────────────────────────────────────────
 let renderer, scene, camera, controls, pointsMesh;
 let currentData = null;
+let currentLasBlob = null;
+let currentLasName = '';
 
 // ── Three.js setup ────────────────────────────────────────────────────────────
 function initThree() {
@@ -339,6 +343,172 @@ function parseLAS(buffer, budget) {
   };
 }
 
+// ── Text point cloud converter ───────────────────────────────────────────────
+function parseTextPointCloud(text, budget) {
+  const lines = text.split(/\r?\n/);
+  const rows = [];
+  let skippedCountHeader = false;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  let hasRGB = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+
+    const parts = line.split(/[,\s;]+/).filter(Boolean);
+    if (!skippedCountHeader && parts.length === 1 && Number.isInteger(Number(parts[0])) && rows.length === 0) {
+      skippedCountHeader = true;
+      continue;
+    }
+
+    const nums = parts.map(Number).filter(Number.isFinite);
+    if (nums.length < 3) continue;
+
+    const x = nums[0], y = nums[1], z = nums[2];
+    const intensity = nums.length >= 4 ? clamp01(nums[3] > 1 ? nums[3] / 65535 : nums[3]) : 0.5;
+    let rgb = null;
+
+    if (nums.length >= 7) {
+      rgb = normalizeRGB(nums[4], nums[5], nums[6]);
+    } else if (nums.length >= 6) {
+      rgb = normalizeRGB(nums[3], nums[4], nums[5]);
+    }
+
+    if (rgb) hasRGB = true;
+    rows.push({ x, y, z, intensity, rgb });
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
+
+  if (!rows.length) throw new Error('No XYZ points found. Use rows like: x y z, optionally with intensity and RGB.');
+
+  const totalPoints = rows.length;
+  const step = totalPoints > budget ? Math.ceil(totalPoints / budget) : 1;
+  const count = Math.ceil(totalPoints / step);
+  const pos = new Float32Array(count * 3);
+  const col = new Float32Array(count * 3);
+  const inten = new Float32Array(count);
+  const source = [];
+  const cx = (maxX + minX) / 2, cy = (maxY + minY) / 2, cz = (maxZ + minZ) / 2;
+
+  let n = 0;
+  for (let i = 0; i < totalPoints && n < count; i += step) {
+    const p = rows[i];
+    pos[n*3] = p.x - cx;
+    pos[n*3+1] = p.z - cz;
+    pos[n*3+2] = -(p.y - cy);
+    inten[n] = p.intensity;
+    if (p.rgb) {
+      col[n*3] = p.rgb[0];
+      col[n*3+1] = p.rgb[1];
+      col[n*3+2] = p.rgb[2];
+    }
+    source.push(p);
+    n++;
+  }
+
+  return {
+    pos, col, inten,
+    count: n, totalPoints, step,
+    hasRGB,
+    bounds: { minX,maxX, minY,maxY, minZ,maxZ },
+    rangeZ: maxZ - minZ,
+    minZ, maxZ,
+    format: hasRGB ? 2 : 0,
+    versionMinor: 2,
+    sourcePoints: source,
+  };
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function normalizeRGB(r, g, b) {
+  const max = Math.max(r, g, b);
+  const divisor = max <= 1 ? 1 : max <= 255 ? 255 : 65535;
+  return [clamp01(r / divisor), clamp01(g / divisor), clamp01(b / divisor)];
+}
+
+function buildLAS(data) {
+  if (!data.sourcePoints?.length) return null;
+
+  const hasRGB = data.hasRGB;
+  const pointFormat = hasRGB ? 2 : 0;
+  const headerSize = 227;
+  const pointLen = hasRGB ? 26 : 20;
+  const pointOffset = headerSize;
+  const points = data.sourcePoints;
+  const buffer = new ArrayBuffer(headerSize + points.length * pointLen);
+  const dv = new DataView(buffer);
+  const enc = new TextEncoder();
+  const scale = 0.001;
+  const { minX, maxX, minY, maxY, minZ, maxZ } = data.bounds;
+
+  writeAscii(dv, 0, 'LASF', 4);
+  dv.setUint16(24, 1, true);
+  dv.setUint8(25, 2);
+  writeAscii(dv, 26, 'w3dprints.net PointCloud converter', 32);
+  writeAscii(dv, 58, 'PointCloudViewer', 32);
+  dv.setUint16(90, getDayOfYear(), true);
+  dv.setUint16(92, new Date().getFullYear(), true);
+  dv.setUint16(94, headerSize, true);
+  dv.setUint32(96, pointOffset, true);
+  dv.setUint32(100, 0, true);
+  dv.setUint8(104, pointFormat);
+  dv.setUint16(105, pointLen, true);
+  dv.setUint32(107, points.length, true);
+  dv.setUint32(111, points.length, true);
+  for (let offset = 115; offset <= 127; offset += 4) dv.setUint32(offset, 0, true);
+  dv.setFloat64(131, scale, true);
+  dv.setFloat64(139, scale, true);
+  dv.setFloat64(147, scale, true);
+  dv.setFloat64(155, minX, true);
+  dv.setFloat64(163, minY, true);
+  dv.setFloat64(171, minZ, true);
+  dv.setFloat64(179, maxX, true);
+  dv.setFloat64(187, minX, true);
+  dv.setFloat64(195, maxY, true);
+  dv.setFloat64(203, minY, true);
+  dv.setFloat64(211, maxZ, true);
+  dv.setFloat64(219, minZ, true);
+
+  for (let i = 0; i < points.length; i++) {
+    const p = points[i];
+    const base = pointOffset + i * pointLen;
+    dv.setInt32(base, Math.round((p.x - minX) / scale), true);
+    dv.setInt32(base+4, Math.round((p.y - minY) / scale), true);
+    dv.setInt32(base+8, Math.round((p.z - minZ) / scale), true);
+    dv.setUint16(base+12, Math.round(clamp01(p.intensity) * 65535), true);
+    dv.setUint8(base+14, 1);
+    dv.setUint8(base+15, 0);
+    dv.setInt8(base+16, 0);
+    dv.setUint8(base+17, 0);
+    dv.setUint16(base+18, 0, true);
+    if (hasRGB) {
+      const rgb = p.rgb || [1, 1, 1];
+      dv.setUint16(base+20, Math.round(clamp01(rgb[0]) * 65535), true);
+      dv.setUint16(base+22, Math.round(clamp01(rgb[1]) * 65535), true);
+      dv.setUint16(base+24, Math.round(clamp01(rgb[2]) * 65535), true);
+    }
+  }
+
+  return new Blob([buffer], { type: 'application/octet-stream' });
+
+  function writeAscii(view, offset, value, length) {
+    const bytes = enc.encode(value);
+    for (let i = 0; i < length; i++) view.setUint8(offset + i, bytes[i] || 0);
+  }
+}
+
+function getDayOfYear() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  return Math.floor((now - start) / 86400000);
+}
+
 // ── Colormaps ─────────────────────────────────────────────────────────────────
 // Jet colormap: t in [0,1] → [r,g,b] each in [0,1]
 function jet(t) {
@@ -452,16 +622,26 @@ function updateStats(data) {
   document.getElementById('stats').classList.remove('hidden');
 }
 
+function setDownload(blob, name) {
+  currentLasBlob = blob;
+  currentLasName = name;
+  document.getElementById('download-las').classList.toggle('hidden', !blob);
+}
+
+function convertedName(fileName) {
+  return fileName.replace(/\.[^.]+$/, '') + '.las';
+}
+
 // ── File loading ──────────────────────────────────────────────────────────────
 async function loadFile(file) {
   if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
   if (ext === 'laz') {
-    showError('LAZ files require decompression. Please convert to LAS first using CloudCompare (free) or las2las, then reload.');
+    showError('LAZ decompression is not built in yet. Convert LAZ to LAS first, or load XYZ, PTS, CSV, TXT, or LAS.');
     return;
   }
-  if (ext !== 'las') {
-    showError('Please open a .las file.');
+  if (!['las', 'xyz', 'pts', 'csv', 'txt'].includes(ext)) {
+    showError('Please open LAS, XYZ, PTS, CSV, or TXT point-cloud data.');
     return;
   }
 
@@ -475,17 +655,28 @@ async function loadFile(file) {
 
   try {
     const budget = parseInt(document.getElementById('point-budget')?.value || '3000000');
+    let data;
 
-    setProgress(20, `Reading ${(file.size/1024/1024).toFixed(1)} MB…`);
-    const buffer = await file.arrayBuffer();
+    setProgress(20, `Reading ${(file.size/1024/1024).toFixed(1)} MB...`);
+    if (ext === 'las') {
+      const buffer = await file.arrayBuffer();
+      setProgress(55, 'Parsing point records...');
+      await new Promise(r => setTimeout(r, 20));
+      data = parseLAS(buffer, budget);
+      setDownload(null, '');
+    } else {
+      const text = await file.text();
+      setProgress(45, 'Converting text points...');
+      await new Promise(r => setTimeout(r, 20));
+      data = parseTextPointCloud(text, budget);
+      setProgress(65, 'Building LAS download...');
+      setDownload(buildLAS(data), convertedName(file.name));
+    }
 
-    setProgress(55, 'Parsing point records…');
     await new Promise(r => setTimeout(r, 20));
-
-    const data = parseLAS(buffer, budget);
     currentData = data;
 
-    setProgress(80, 'Building geometry…');
+    setProgress(80, 'Building geometry...');
     await new Promise(r => setTimeout(r, 20));
 
     const colorMode = document.getElementById('color-mode')?.value || 'elevation';
@@ -499,7 +690,8 @@ async function loadFile(file) {
 
     document.getElementById('progress-overlay').classList.add('hidden');
     document.getElementById('toolbar').style.display = 'flex';
-    document.getElementById('file-badge').textContent = `${file.name}  ·  ${fmtPts(data.count)} pts`;
+    const badgeSuffix = ext === 'las' ? '' : ' converted';
+    document.getElementById('file-badge').textContent = `${file.name}${badgeSuffix}  ·  ${fmtPts(data.count)} pts`;
 
   } catch(e) {
     document.getElementById('progress-overlay').classList.add('hidden');
@@ -555,6 +747,18 @@ document.getElementById('point-size')?.addEventListener('input', e => {
 // Point budget: requires reload — show hint
 document.getElementById('point-budget')?.addEventListener('change', () => {
   if (currentData) showError('Point budget changed — reload the file to apply.');
+});
+
+document.getElementById('download-las')?.addEventListener('click', () => {
+  if (!currentLasBlob) return;
+  const url = URL.createObjectURL(currentLasBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = currentLasName || 'converted-point-cloud.las';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 });
 
 // Also allow drop anywhere on main canvas when a file is loaded
