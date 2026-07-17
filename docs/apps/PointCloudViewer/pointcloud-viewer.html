@@ -53,10 +53,42 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
 .btn:hover{border-color:var(--accent);color:var(--accent)}
 .btn.hidden{display:none}
 .btn.is-active{border-color:var(--accent);background:rgba(88,166,255,.16);color:var(--accent)}
+.btn.danger{border-color:rgba(248,81,73,.7);color:#ffb3ad}
 
 /* ── Main area ── */
 #main{flex:1;position:relative;overflow:hidden}
 #canvas{display:block;width:100%;height:100%}
+
+/* ── Potree-style sidebar ── */
+#sidebar{
+  position:absolute;top:0;left:0;bottom:0;width:340px;z-index:7;
+  background:rgba(13,17,23,.96);border-right:1px solid var(--border);
+  transform:translateX(-100%);transition:transform .18s ease;overflow:auto;
+  box-shadow:18px 0 36px rgba(0,0,0,.28);
+}
+#sidebar.open{transform:translateX(0)}
+.sidebar-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 14px;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:1}
+.sidebar-title{font-weight:700;font-size:14px}
+.panel{border-bottom:1px solid var(--border)}
+.panel summary{list-style:none;cursor:pointer;padding:12px 14px;font-size:13px;font-weight:700;color:var(--text)}
+.panel summary::-webkit-details-marker{display:none}
+.panel summary::after{content:'+';float:right;color:var(--muted)}
+.panel[open] summary::after{content:'-'}
+.panel-body{display:flex;flex-direction:column;gap:10px;padding:0 14px 14px}
+.field{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted)}
+.field input[type=range]{flex:1}
+.field select,.field input[type=color]{max-width:150px}
+.field input[type=checkbox]{accent-color:var(--accent)}
+.divider{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:6px}
+.tool-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.scene-list,.measurement-list,.class-list{display:flex;flex-direction:column;gap:6px}
+.scene-row,.measure-row,.class-row{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:7px 8px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.03);
+  font-size:12px;color:var(--muted);
+}
+.measure-row strong{color:var(--text);font-weight:600}
+.empty-note{font-size:12px;color:var(--muted);line-height:1.45}
 
 /* ── Drop overlay ── */
 #drop-overlay{
@@ -164,6 +196,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
     <div class="logo">Point<span>Cloud</span></div>
     <div id="file-badge">No file loaded</div>
     <div class="spacer"></div>
+    <button class="btn" id="sidebar-toggle">☰ Sidebar</button>
     <button class="btn" id="open-btn">📂 Open / Convert</button>
     <input type="file" id="file-input" accept=".las,.xyz,.pts,.csv,.txt,.laz">
   </header>
@@ -174,6 +207,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
       <option value="elevation">Elevation</option>
       <option value="intensity">Intensity</option>
       <option value="rgb">RGB (if available)</option>
+      <option value="classification">Classification</option>
     </select>
     <div class="tb-sep"></div>
     <span class="tb-label">Point size</span>
@@ -194,6 +228,112 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
 
   <div id="main">
     <canvas id="canvas"></canvas>
+
+    <aside id="sidebar" aria-label="Point cloud controls">
+      <div class="sidebar-head">
+        <span class="sidebar-title">Potree Tools</span>
+        <button class="btn" id="sidebar-close" type="button">Close</button>
+      </div>
+
+      <details class="panel" open>
+        <summary>Appearance</summary>
+        <div class="panel-body">
+          <label class="field">Material
+            <select id="appearance-material">
+              <option value="elevation">Elevation</option>
+              <option value="intensity">Intensity</option>
+              <option value="rgb">RGB</option>
+              <option value="classification">Classification</option>
+            </select>
+          </label>
+          <label class="field">Point size <input type="range" id="appearance-point-size" min="0.5" max="8" step="0.5" value="1.5"></label>
+          <label class="field">Opacity <input type="range" id="appearance-opacity" min="0.1" max="1" step="0.05" value="1"></label>
+          <label class="field">Shape
+            <select id="appearance-shape">
+              <option value="square">Square</option>
+              <option value="circle">Circle</option>
+            </select>
+          </label>
+          <label class="field">Field of view <input type="range" id="appearance-fov" min="25" max="100" step="1" value="60"></label>
+          <label class="field">Background
+            <select id="appearance-bg">
+              <option value="dark">Dark</option>
+              <option value="black">Black</option>
+              <option value="white">White</option>
+              <option value="gradient">Gradient</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>Tools</summary>
+        <div class="panel-body">
+          <div class="tool-grid">
+            <button class="btn" type="button" data-tool="point">Point</button>
+            <button class="btn" type="button" data-tool="distance">Distance</button>
+            <button class="btn" type="button" data-tool="height">Height</button>
+            <button class="btn" type="button" data-tool="area">Area</button>
+            <button class="btn" type="button" data-tool="angle">Angle</button>
+            <button class="btn" type="button" data-tool="profile">Profile</button>
+          </div>
+          <button class="btn danger" id="clear-measurements" type="button">Clear Measurements</button>
+          <button class="btn" id="export-measurements" type="button">Export Measurements</button>
+          <div class="divider">Measurements</div>
+          <div id="measurement-list" class="measurement-list">
+            <p class="empty-note">Choose a tool, then click points in the cloud.</p>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>Scene</summary>
+        <div class="panel-body">
+          <div class="scene-list">
+            <label class="scene-row"><span>Point cloud visible</span><input id="scene-visible" type="checkbox" checked></label>
+            <div class="scene-row"><span>Loaded points</span><strong id="scene-points">-</strong></div>
+            <div class="scene-row"><span>Bounds</span><strong id="scene-bounds">-</strong></div>
+            <div class="scene-row"><span>Measurements</span><strong id="scene-measurements">0</strong></div>
+          </div>
+          <button class="btn" id="scene-fit" type="button">Fit to Screen</button>
+          <button class="btn" id="scene-screenshot" type="button">Screenshot PNG</button>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>Filters</summary>
+        <div class="panel-body">
+          <label class="field">Classification color <input id="show-class-colors" type="checkbox"></label>
+          <div class="divider">Classifications</div>
+          <div id="classification-list" class="class-list">
+            <p class="empty-note">Load a LAS/LAZ file with classifications.</p>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>Clipping</summary>
+        <div class="panel-body">
+          <label class="field">Enable clipping <input id="clip-enabled" type="checkbox"></label>
+          <label class="field">Mode
+            <select id="clip-mode">
+              <option value="inside">Keep inside</option>
+              <option value="outside">Keep outside</option>
+            </select>
+          </label>
+          <label class="field">Min elevation <input type="range" id="clip-min" min="0" max="100" step="1" value="0"></label>
+          <label class="field">Max elevation <input type="range" id="clip-max" min="0" max="100" step="1" value="100"></label>
+          <div class="scene-row"><span>Range</span><strong id="clip-label">Full</strong></div>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>About</summary>
+        <div class="panel-body">
+          <p class="empty-note">This viewer mirrors the main Potree sidebar workflow for local LAS, LAZ, and text point-cloud files. Files are processed in your browser.</p>
+        </div>
+      </details>
+    </aside>
 
     <!-- Drop overlay -->
     <div id="drop-overlay">
@@ -301,11 +441,30 @@ let flyDragging = false;
 let flyButton = -1;
 let lastPointer = { x: 0, y: 0 };
 const keyState = new Set();
+const renderSettings = {
+  colorMode: 'elevation',
+  pointSize: 1.5,
+  opacity: 1,
+  shape: 'square',
+  background: 'dark',
+};
+const clipSettings = {
+  enabled: false,
+  mode: 'inside',
+  minPct: 0,
+  maxPct: 100,
+};
+const classificationVisibility = new Map();
+let circlePointTexture = null;
+let measurementMode = null;
+let measurementDraft = [];
+let measurements = [];
+let measurementGroup = null;
 
 // ── Three.js setup ────────────────────────────────────────────────────────────
 function initThree() {
   const canvas = document.getElementById('canvas');
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   clock = new THREE.Clock();
 
@@ -380,6 +539,7 @@ function parseLAS(buffer, budget) {
   const pos = new Float32Array(count * 3);
   const col = new Float32Array(count * 3);
   const inten = new Float32Array(count);
+  const cls = new Uint8Array(count);
 
   // Center for precision
   const cx = (maxX + minX) / 2, cy = (maxY + minY) / 2, cz = (maxZ + minZ) / 2;
@@ -402,6 +562,7 @@ function parseLAS(buffer, budget) {
     pos[n*3+2] = -ry;
 
     inten[n] = dv.getUint16(base+12, true) / 65535;
+    cls[n] = pointFormat <= 5 ? dv.getUint8(base+15) & 0b00011111 : dv.getUint8(base+17);
 
     if (hasRGB && rgbOff != null) {
       col[n*3]   = dv.getUint16(base+rgbOff,   true) / 65535;
@@ -412,7 +573,7 @@ function parseLAS(buffer, budget) {
   }
 
   return {
-    pos, col, inten,
+    pos, col, inten, cls,
     count: n, totalPoints, step,
     hasRGB,
     bounds: { minX,maxX, minY,maxY, minZ,maxZ },
@@ -485,10 +646,13 @@ function meshToPointData(mesh, header, step) {
   const pos = new Float32Array(count * 3);
   const col = new Float32Array(count * 3);
   const inten = new Float32Array(count);
+  const cls = new Uint8Array(count);
   const colorAttr = mesh.attributes?.COLOR_0 || mesh.attributes?.colors;
   const colors = colorAttr?.value;
   const colorSize = colorAttr?.size || 3;
   const colorMax = colors ? detectColorMax(colors) : 1;
+  const classAttr = mesh.attributes?.CLASSIFICATION || mesh.attributes?.classification;
+  const classes = classAttr?.value;
   const hasRGB = Boolean(colors);
   const bounds = mesh.header?.boundingBox
     ? {
@@ -516,6 +680,7 @@ function meshToPointData(mesh, header, step) {
     pos[i*3+1] = z - cz;
     pos[i*3+2] = -(y - cy);
     inten[i] = 0.5;
+    cls[i] = classes ? classes[i] : 0;
 
     if (colors) {
       col[i*3] = clamp01(colors[i*colorSize] / colorMax);
@@ -525,7 +690,7 @@ function meshToPointData(mesh, header, step) {
   }
 
   return {
-    pos, col, inten,
+    pos, col, inten, cls,
     count,
     totalPoints: header.totalPoints || count,
     step,
@@ -570,6 +735,7 @@ function parseTextPointCloud(text, budget) {
 
     const x = nums[0], y = nums[1], z = nums[2];
     const intensity = nums.length >= 4 ? clamp01(nums[3] > 1 ? nums[3] / 65535 : nums[3]) : 0.5;
+    const classification = nums.length >= 8 && Number.isInteger(nums[7]) ? Math.max(0, Math.min(255, nums[7])) : 1;
     let rgb = null;
 
     if (nums.length >= 7) {
@@ -579,7 +745,7 @@ function parseTextPointCloud(text, budget) {
     }
 
     if (rgb) hasRGB = true;
-    rows.push({ x, y, z, intensity, rgb });
+    rows.push({ x, y, z, intensity, rgb, classification });
     if (x < minX) minX = x; if (x > maxX) maxX = x;
     if (y < minY) minY = y; if (y > maxY) maxY = y;
     if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
@@ -593,6 +759,7 @@ function parseTextPointCloud(text, budget) {
   const pos = new Float32Array(count * 3);
   const col = new Float32Array(count * 3);
   const inten = new Float32Array(count);
+  const cls = new Uint8Array(count);
   const source = [];
   const cx = (maxX + minX) / 2, cy = (maxY + minY) / 2, cz = (maxZ + minZ) / 2;
 
@@ -608,12 +775,13 @@ function parseTextPointCloud(text, budget) {
       col[n*3+1] = p.rgb[1];
       col[n*3+2] = p.rgb[2];
     }
+    cls[n] = p.classification;
     source.push(p);
     n++;
   }
 
   return {
-    pos, col, inten,
+    pos, col, inten, cls,
     count: n, totalPoints, step,
     hasRGB,
     bounds: { minX,maxX, minY,maxY, minZ,maxZ },
@@ -723,7 +891,7 @@ function jet(t) {
 }
 
 function buildColors(data, mode) {
-  const { pos, col, inten, count, minZ, rangeZ } = data;
+  const { pos, col, inten, cls, count, minZ, rangeZ } = data;
   const c = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
     let r, g, b;
@@ -732,6 +900,8 @@ function buildColors(data, mode) {
     } else if (mode === 'intensity') {
       const v = inten[i];
       r = g = b = v;
+    } else if (mode === 'classification') {
+      [r, g, b] = classColor(cls?.[i] ?? 0);
     } else {
       // elevation: pos[i*3+1] is Y (up) in three.js = original Z
       const elev = pos[i*3+1]; // already centered so offset doesn't matter for range
@@ -742,6 +912,22 @@ function buildColors(data, mode) {
     c[i*3] = r; c[i*3+1] = g; c[i*3+2] = b;
   }
   return c;
+}
+
+function classColor(code) {
+  const palette = {
+    0: [0.6, 0.6, 0.6],
+    1: [0.95, 0.95, 0.95],
+    2: [0.45, 0.32, 0.18],
+    3: [0.36, 0.78, 0.35],
+    4: [0.22, 0.62, 0.24],
+    5: [0.08, 0.42, 0.16],
+    6: [0.86, 0.72, 0.5],
+    7: [0.9, 0.15, 0.15],
+    9: [0.2, 0.48, 0.95],
+    17: [0.95, 0.78, 0.2],
+  };
+  return palette[code] || [0.7, 0.45, 0.95];
 }
 
 // Normalise elevation colors properly
@@ -765,25 +951,95 @@ function buildElevColors(data) {
 }
 
 // ── Point cloud rendering ─────────────────────────────────────────────────────
-function buildMesh(data, colorMode, pointSize) {
+function buildMesh(data, colorMode = renderSettings.colorMode, pointSize = renderSettings.pointSize) {
   if (pointsMesh) { scene.remove(pointsMesh); pointsMesh.geometry.dispose(); pointsMesh.material.dispose(); }
 
+  const filtered = filterPointData(data);
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(data.pos.slice(0, data.count*3), 3));
+  geo.setAttribute('position', new THREE.BufferAttribute(filtered.pos, 3));
 
   const colors = colorMode === 'elevation'
-    ? buildElevColors(data)
-    : buildColors(data, colorMode);
+    ? buildElevColors(filtered)
+    : buildColors(filtered, colorMode);
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
   const mat = new THREE.PointsMaterial({
     size: pointSize,
     vertexColors: true,
     sizeAttenuation: true,
+    transparent: renderSettings.opacity < 1,
+    opacity: renderSettings.opacity,
+    map: renderSettings.shape === 'circle' ? getCirclePointTexture() : null,
+    alphaTest: renderSettings.shape === 'circle' ? 0.2 : 0,
   });
 
   pointsMesh = new THREE.Points(geo, mat);
   scene.add(pointsMesh);
+  document.getElementById('scene-points').textContent = `${fmtPts(filtered.count)} / ${fmtPts(data.count)}`;
+}
+
+function filterPointData(data) {
+  const visible = [];
+  const yMin = minPointY(data);
+  const yMax = maxPointY(data);
+  const range = yMax - yMin || 1;
+  const clipMin = yMin + range * (clipSettings.minPct / 100);
+  const clipMax = yMin + range * (clipSettings.maxPct / 100);
+
+  for (let i = 0; i < data.count; i++) {
+    const cls = data.cls?.[i] ?? 0;
+    const classOk = classificationVisibility.size === 0 || classificationVisibility.get(cls) !== false;
+    const y = data.pos[i*3+1];
+    const inside = y >= clipMin && y <= clipMax;
+    const clipOk = !clipSettings.enabled || (clipSettings.mode === 'inside' ? inside : !inside);
+    if (classOk && clipOk) visible.push(i);
+  }
+
+  const pos = new Float32Array(visible.length * 3);
+  const col = new Float32Array(visible.length * 3);
+  const inten = new Float32Array(visible.length);
+  const cls = new Uint8Array(visible.length);
+  for (let out = 0; out < visible.length; out++) {
+    const i = visible[out];
+    pos.set(data.pos.subarray(i*3, i*3+3), out*3);
+    col.set(data.col.subarray(i*3, i*3+3), out*3);
+    inten[out] = data.inten[i];
+    cls[out] = data.cls?.[i] ?? 0;
+  }
+
+  return { ...data, pos, col, inten, cls, count: visible.length };
+}
+
+function minPointY(data) {
+  let min = Infinity;
+  for (let i = 0; i < data.count; i++) min = Math.min(min, data.pos[i*3+1]);
+  return min === Infinity ? 0 : min;
+}
+
+function maxPointY(data) {
+  let max = -Infinity;
+  for (let i = 0; i < data.count; i++) max = Math.max(max, data.pos[i*3+1]);
+  return max === -Infinity ? 0 : max;
+}
+
+function getCirclePointTexture() {
+  if (circlePointTexture) return circlePointTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(32, 32, 30, 0, Math.PI * 2);
+  ctx.fill();
+  circlePointTexture = new THREE.CanvasTexture(canvas);
+  return circlePointTexture;
+}
+
+function refreshCloud() {
+  if (!currentData) return;
+  buildMesh(currentData, renderSettings.colorMode, renderSettings.pointSize);
+  updateSidebarStats(currentData);
 }
 
 function resetCamera(data) {
@@ -961,6 +1217,202 @@ function updateStats(data) {
   document.getElementById('s-fmt').textContent = `LAS 1.${data.versionMinor} · Format ${data.format}`;
   document.getElementById('s-rgb').textContent = data.hasRGB ? '✓ Yes' : '✗ No';
   document.getElementById('stats').classList.remove('hidden');
+  updateSidebarStats(data);
+  buildClassificationList(data);
+}
+
+function updateSidebarStats(data) {
+  if (!data) return;
+  const { bounds } = data;
+  document.getElementById('scene-points').textContent = fmtPts(data.count);
+  document.getElementById('scene-bounds').textContent = `${fmt(bounds.maxX - bounds.minX)} x ${fmt(bounds.maxY - bounds.minY)} x ${fmt(bounds.maxZ - bounds.minZ)} m`;
+  document.getElementById('scene-measurements').textContent = measurements.length.toString();
+  updateClipLabel();
+}
+
+function buildClassificationList(data) {
+  const list = document.getElementById('classification-list');
+  const classes = new Map();
+  for (let i = 0; i < data.count; i++) {
+    const code = data.cls?.[i] ?? 0;
+    classes.set(code, (classes.get(code) || 0) + 1);
+    if (!classificationVisibility.has(code)) classificationVisibility.set(code, true);
+  }
+
+  if (!classes.size) {
+    list.innerHTML = '<p class="empty-note">No classifications available.</p>';
+    return;
+  }
+
+  list.innerHTML = '';
+  [...classes.entries()].sort((a, b) => a[0] - b[0]).forEach(([code, count]) => {
+    const label = document.createElement('label');
+    label.className = 'class-row';
+    const color = classColor(code).map(v => Math.round(v * 255));
+    label.innerHTML = `<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:rgb(${color.join(',')});margin-right:6px"></span>${className(code)} (${code})</span><span>${fmtPts(count)}</span>`;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = classificationVisibility.get(code) !== false;
+    checkbox.addEventListener('change', () => {
+      classificationVisibility.set(code, checkbox.checked);
+      refreshCloud();
+    });
+    label.appendChild(checkbox);
+    list.appendChild(label);
+  });
+}
+
+function className(code) {
+  return {
+    0: 'Created never classified',
+    1: 'Unclassified',
+    2: 'Ground',
+    3: 'Low vegetation',
+    4: 'Medium vegetation',
+    5: 'High vegetation',
+    6: 'Building',
+    7: 'Low point',
+    9: 'Water',
+    17: 'Bridge deck',
+  }[code] || 'Class';
+}
+
+function updateClipLabel() {
+  const label = document.getElementById('clip-label');
+  if (!label) return;
+  label.textContent = clipSettings.enabled ? `${clipSettings.minPct}% - ${clipSettings.maxPct}%` : 'Full';
+}
+
+function setBackground(mode) {
+  renderSettings.background = mode;
+  if (mode === 'black') {
+    scene.background = new THREE.Color(0x000000);
+    renderer.domElement.style.background = '#000';
+  } else if (mode === 'white') {
+    scene.background = new THREE.Color(0xffffff);
+    renderer.domElement.style.background = '#fff';
+  } else if (mode === 'gradient') {
+    scene.background = null;
+    renderer.domElement.style.background = 'linear-gradient(#132036,#06090f)';
+  } else {
+    scene.background = new THREE.Color(0x0d1117);
+    renderer.domElement.style.background = '#0d1117';
+  }
+}
+
+function setMeasurementMode(mode) {
+  measurementMode = measurementMode === mode ? null : mode;
+  measurementDraft = [];
+  document.querySelectorAll('[data-tool]').forEach(btn => btn.classList.toggle('is-active', btn.dataset.tool === measurementMode));
+}
+
+function pickPoint(event) {
+  if (!measurementMode || !pointsMesh) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const pointer = new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.params.Points.threshold = Math.max(getSceneSpan() * 0.008, 0.4);
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObject(pointsMesh, false)[0];
+  if (!hit) return;
+  measurementDraft.push(hit.point.clone());
+  const needed = { point: 1, distance: 2, height: 2, area: 3, angle: 3, profile: 2 }[measurementMode] || 2;
+  if (measurementDraft.length >= needed) finishMeasurement();
+}
+
+function finishMeasurement() {
+  const points = measurementDraft.splice(0);
+  const type = measurementMode;
+  const result = measurementValue(type, points);
+  const measurement = { id: Date.now(), type, points: points.map(p => p.toArray()), result };
+  measurements.push(measurement);
+  drawMeasurement(measurement);
+  renderMeasurementList();
+  updateSidebarStats(currentData);
+}
+
+function measurementValue(type, points) {
+  if (type === 'point') return points[0].toArray().map(v => fmt(v)).join(', ');
+  if (type === 'distance' || type === 'profile') return `${fmt(points[0].distanceTo(points[1]))} m`;
+  if (type === 'height') return `${fmt(Math.abs(points[1].y - points[0].y))} m`;
+  if (type === 'area') {
+    const a = points[0].distanceTo(points[1]);
+    const b = points[1].distanceTo(points[2]);
+    const c = points[2].distanceTo(points[0]);
+    const s = (a + b + c) / 2;
+    return `${fmt(Math.sqrt(Math.max(s * (s - a) * (s - b) * (s - c), 0)))} m²`;
+  }
+  if (type === 'angle') {
+    const v1 = points[0].clone().sub(points[1]).normalize();
+    const v2 = points[2].clone().sub(points[1]).normalize();
+    return `${THREE.MathUtils.radToDeg(v1.angleTo(v2)).toFixed(1)}°`;
+  }
+  return '';
+}
+
+function drawMeasurement(measurement) {
+  if (!measurementGroup) {
+    measurementGroup = new THREE.Group();
+    scene.add(measurementGroup);
+  }
+  const points = measurement.points.map(p => new THREE.Vector3(...p));
+  const mat = new THREE.LineBasicMaterial({ color: 0xffd166, depthTest: false });
+  if (points.length > 1) {
+    const linePoints = measurement.type === 'area' ? [...points, points[0]] : points;
+    const geo = new THREE.BufferGeometry().setFromPoints(linePoints);
+    measurementGroup.add(new THREE.Line(geo, mat));
+  }
+  const dotGeo = new THREE.SphereGeometry(Math.max(getSceneSpan() * 0.006, 0.15), 10, 10);
+  const dotMat = new THREE.MeshBasicMaterial({ color: 0xffd166, depthTest: false });
+  points.forEach(point => {
+    const dot = new THREE.Mesh(dotGeo, dotMat);
+    dot.position.copy(point);
+    measurementGroup.add(dot);
+  });
+}
+
+function renderMeasurementList() {
+  const list = document.getElementById('measurement-list');
+  if (!measurements.length) {
+    list.innerHTML = '<p class="empty-note">Choose a tool, then click points in the cloud.</p>';
+    return;
+  }
+  list.innerHTML = '';
+  measurements.forEach((m, index) => {
+    const row = document.createElement('div');
+    row.className = 'measure-row';
+    row.innerHTML = `<span>${index + 1}. ${m.type}</span><strong>${m.result}</strong>`;
+    list.appendChild(row);
+  });
+}
+
+function clearMeasurements() {
+  measurements = [];
+  measurementDraft = [];
+  if (measurementGroup) {
+    scene.remove(measurementGroup);
+    measurementGroup.traverse(obj => {
+      obj.geometry?.dispose?.();
+      obj.material?.dispose?.();
+    });
+    measurementGroup = null;
+  }
+  renderMeasurementList();
+  updateSidebarStats(currentData);
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function setDownload(blob, name) {
@@ -1018,14 +1470,17 @@ async function loadFile(file) {
     }
 
     await new Promise(r => setTimeout(r, 20));
+    classificationVisibility.clear();
     currentData = data;
 
     setProgress(80, 'Building geometry...');
     await new Promise(r => setTimeout(r, 20));
 
-    const colorMode = document.getElementById('color-mode')?.value || 'elevation';
-    const pointSize = parseFloat(document.getElementById('point-size')?.value || '1.5');
-    buildMesh(data, colorMode, pointSize);
+    renderSettings.colorMode = document.getElementById('color-mode')?.value || 'elevation';
+    renderSettings.pointSize = parseFloat(document.getElementById('point-size')?.value || '1.5');
+    document.getElementById('appearance-material').value = renderSettings.colorMode;
+    document.getElementById('appearance-point-size').value = renderSettings.pointSize;
+    buildMesh(data, renderSettings.colorMode, renderSettings.pointSize);
     resetCamera(data);
     updateStats(data);
 
@@ -1079,19 +1534,103 @@ document.getElementById('reset-cam')?.addEventListener('click', () => {
 
 // Color mode
 document.getElementById('color-mode')?.addEventListener('change', e => {
-  if (!currentData) return;
-  const ps = parseFloat(document.getElementById('point-size').value);
-  buildMesh(currentData, e.target.value, ps);
+  renderSettings.colorMode = e.target.value;
+  document.getElementById('appearance-material').value = e.target.value;
+  document.getElementById('show-class-colors').checked = e.target.value === 'classification';
+  refreshCloud();
 });
 
 // Point size
 document.getElementById('point-size')?.addEventListener('input', e => {
-  if (pointsMesh) pointsMesh.material.size = parseFloat(e.target.value);
+  renderSettings.pointSize = parseFloat(e.target.value);
+  document.getElementById('appearance-point-size').value = e.target.value;
+  if (pointsMesh) pointsMesh.material.size = renderSettings.pointSize;
 });
 
 // Point budget: requires reload — show hint
 document.getElementById('point-budget')?.addEventListener('change', () => {
   if (currentData) showError('Point budget changed — reload the file to apply.');
+});
+
+document.getElementById('sidebar-toggle')?.addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('open');
+});
+document.getElementById('sidebar-close')?.addEventListener('click', () => {
+  document.getElementById('sidebar').classList.remove('open');
+});
+
+document.getElementById('appearance-material')?.addEventListener('change', e => {
+  renderSettings.colorMode = e.target.value;
+  document.getElementById('color-mode').value = e.target.value;
+  document.getElementById('show-class-colors').checked = e.target.value === 'classification';
+  refreshCloud();
+});
+document.getElementById('appearance-point-size')?.addEventListener('input', e => {
+  renderSettings.pointSize = parseFloat(e.target.value);
+  document.getElementById('point-size').value = e.target.value;
+  if (pointsMesh) pointsMesh.material.size = renderSettings.pointSize;
+});
+document.getElementById('appearance-opacity')?.addEventListener('input', e => {
+  renderSettings.opacity = parseFloat(e.target.value);
+  refreshCloud();
+});
+document.getElementById('appearance-shape')?.addEventListener('change', e => {
+  renderSettings.shape = e.target.value;
+  refreshCloud();
+});
+document.getElementById('appearance-fov')?.addEventListener('input', e => {
+  camera.fov = parseFloat(e.target.value);
+  camera.updateProjectionMatrix();
+});
+document.getElementById('appearance-bg')?.addEventListener('change', e => setBackground(e.target.value));
+
+document.getElementById('show-class-colors')?.addEventListener('change', e => {
+  renderSettings.colorMode = e.target.checked ? 'classification' : 'elevation';
+  document.getElementById('appearance-material').value = renderSettings.colorMode;
+  document.getElementById('color-mode').value = renderSettings.colorMode;
+  refreshCloud();
+});
+
+document.getElementById('clip-enabled')?.addEventListener('change', e => {
+  clipSettings.enabled = e.target.checked;
+  updateClipLabel();
+  refreshCloud();
+});
+document.getElementById('clip-mode')?.addEventListener('change', e => {
+  clipSettings.mode = e.target.value;
+  refreshCloud();
+});
+document.getElementById('clip-min')?.addEventListener('input', e => {
+  clipSettings.minPct = Math.min(parseInt(e.target.value, 10), clipSettings.maxPct);
+  e.target.value = clipSettings.minPct;
+  updateClipLabel();
+  refreshCloud();
+});
+document.getElementById('clip-max')?.addEventListener('input', e => {
+  clipSettings.maxPct = Math.max(parseInt(e.target.value, 10), clipSettings.minPct);
+  e.target.value = clipSettings.maxPct;
+  updateClipLabel();
+  refreshCloud();
+});
+
+document.querySelectorAll('[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => setMeasurementMode(btn.dataset.tool));
+});
+document.getElementById('clear-measurements')?.addEventListener('click', clearMeasurements);
+document.getElementById('export-measurements')?.addEventListener('click', () => {
+  downloadBlob(new Blob([JSON.stringify(measurements, null, 2)], { type: 'application/json' }), 'point-cloud-measurements.json');
+});
+document.getElementById('scene-visible')?.addEventListener('change', e => {
+  if (pointsMesh) pointsMesh.visible = e.target.checked;
+});
+document.getElementById('scene-fit')?.addEventListener('click', () => {
+  if (currentData) resetCamera(currentData);
+});
+document.getElementById('scene-screenshot')?.addEventListener('click', () => {
+  renderer.render(scene, camera);
+  renderer.domElement.toBlob(blob => {
+    if (blob) downloadBlob(blob, 'point-cloud-view.png');
+  });
 });
 
 document.querySelectorAll('[data-mode]').forEach(btn => {
@@ -1126,6 +1665,10 @@ const canvas = document.getElementById('canvas');
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('dblclick', focusAtPointer);
 canvas.addEventListener('pointerdown', e => {
+  if (measurementMode) {
+    pickPoint(e);
+    return;
+  }
   if (navigationMode !== 'fly' && navigationMode !== 'helicopter') return;
   flyDragging = true;
   flyButton = e.button;
@@ -1165,14 +1708,7 @@ canvas.addEventListener('wheel', e => {
 
 document.getElementById('download-las')?.addEventListener('click', () => {
   if (!currentLasBlob) return;
-  const url = URL.createObjectURL(currentLasBlob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = currentLasName || 'converted-point-cloud.las';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  downloadBlob(currentLasBlob, currentLasName || 'converted-point-cloud.las');
 });
 
 // Also allow drop anywhere on main canvas when a file is loaded
