@@ -2,15 +2,18 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const Busboy = require("busboy");
 
 const PORT = Number(process.env.PORT || 8787);
 const ROOT = path.resolve(__dirname, "..");
 const DOCS_DIR = path.join(ROOT, "docs");
 const DATA_DIR = path.join(__dirname, "data");
 const CLOUDS_DIR = path.join(DATA_DIR, "pointclouds");
+const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const POTREE_CONVERTER = process.env.POTREE_CONVERTER || "PotreeConverter";
 
 fs.mkdirSync(CLOUDS_DIR, { recursive: true });
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const jobs = new Map();
 
@@ -26,6 +29,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/convert") {
       const body = await readJson(req);
       const job = startConversion(body.inputPath, body.name);
+      sendJson(res, job);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/upload") {
+      const upload = await receiveUpload(req);
+      const job = startConversion(upload.filePath, upload.name);
       sendJson(res, job);
       return;
     }
@@ -119,6 +129,64 @@ function startConversion(inputPath, requestedName) {
   return job;
 }
 
+function receiveUpload(req) {
+  return new Promise((resolve, reject) => {
+    let savedFile = null;
+    let fileWrite = null;
+    let requestedName = "";
+    let finished = false;
+
+    const busboy = Busboy({
+      headers: req.headers,
+      limits: { files: 1 },
+    });
+
+    busboy.on("field", (name, value) => {
+      if (name === "name") requestedName = value;
+    });
+
+    busboy.on("file", (name, file, info) => {
+      const originalName = safeFileName(info.filename || "pointcloud.laz");
+      const ext = path.extname(originalName).toLowerCase();
+
+      if (ext !== ".las" && ext !== ".laz") {
+        file.resume();
+        reject(new Error("Drop a .las or .laz file."));
+        return;
+      }
+
+      const uploadId = `${Date.now()}-${slug(path.basename(originalName, ext))}`;
+      const filePath = path.join(UPLOADS_DIR, `${uploadId}${ext}`);
+      savedFile = {
+        filePath,
+        name: requestedName || path.basename(originalName, ext),
+      };
+
+      fileWrite = fs.createWriteStream(filePath);
+      file.pipe(fileWrite);
+      fileWrite.on("error", reject);
+      fileWrite.on("finish", () => {
+        if (finished && savedFile) resolve(savedFile);
+      });
+    });
+
+    busboy.on("error", reject);
+    busboy.on("finish", () => {
+      finished = true;
+      if (!savedFile) {
+        reject(new Error("No LAS/LAZ file was uploaded."));
+        return;
+      }
+      if (!fileWrite) {
+        reject(new Error("Upload did not start correctly."));
+        return;
+      }
+    });
+
+    req.pipe(busboy);
+  });
+}
+
 function appendLog(job, chunk) {
   job.log += chunk.toString();
   if (job.log.length > 12000) job.log = job.log.slice(-12000);
@@ -126,6 +194,10 @@ function appendLog(job, chunk) {
 
 function slug(value) {
   return value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "cloud";
+}
+
+function safeFileName(value) {
+  return path.basename(value).replace(/[<>:"/\\|?*\x00-\x1f]/g, "-");
 }
 
 function readJson(req) {
@@ -212,7 +284,9 @@ function homePage() {
     *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#0d1117;color:#e6edf3;font-family:system-ui,Segoe UI,Arial,sans-serif}
     main{max-width:980px;margin:0 auto;padding:32px 18px}
     h1{margin:0 0 6px;font-size:28px}.muted{color:#8b949e}
-    form,.job{border:1px solid #30363d;background:#161b22;border-radius:8px;padding:16px;margin-top:18px}
+    form,.job,.drop-zone{border:1px solid #30363d;background:#161b22;border-radius:8px;padding:16px;margin-top:18px}
+    .drop-zone{min-height:150px;display:grid;place-items:center;text-align:center;border-style:dashed}
+    .drop-zone.drag{border-color:#58a6ff;background:#102033}
     label{display:block;font-size:13px;color:#8b949e;margin-bottom:8px}
     input{width:100%;padding:11px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:#e6edf3}
     button,a.button{display:inline-flex;margin-top:12px;margin-right:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;border-radius:6px;padding:9px 12px;text-decoration:none;cursor:pointer}
@@ -225,6 +299,12 @@ function homePage() {
   <main>
     <h1>PC Potree Converter</h1>
     <p class="muted">Convert local LAS/LAZ files into Potree clouds on this PC, then open them in the Potree viewer.</p>
+    <div id="drop-zone" class="drop-zone">
+      <div>
+        <strong>Drop a LAS/LAZ file here</strong>
+        <p class="muted">The file stays on this PC, then PotreeConverter runs locally.</p>
+      </div>
+    </div>
     <form id="convert-form">
       <label for="inputPath">Full LAS/LAZ file path</label>
       <input id="inputPath" placeholder="C:\\Users\\you\\Desktop\\train.laz" autocomplete="off">
@@ -238,6 +318,31 @@ function homePage() {
   <script>
     const form = document.getElementById("convert-form");
     const jobsEl = document.getElementById("jobs");
+    const dropZone = document.getElementById("drop-zone");
+
+    ["dragenter", "dragover"].forEach(type => {
+      dropZone.addEventListener(type, event => {
+        event.preventDefault();
+        dropZone.classList.add("drag");
+      });
+    });
+    ["dragleave", "drop"].forEach(type => {
+      dropZone.addEventListener(type, event => {
+        event.preventDefault();
+        dropZone.classList.remove("drag");
+      });
+    });
+    dropZone.addEventListener("drop", async event => {
+      const file = event.dataTransfer.files[0];
+      if (!file) return;
+      const data = new FormData();
+      data.append("pointcloud", file);
+      data.append("name", document.getElementById("name").value || file.name.replace(/\\.[^.]+$/, ""));
+      const response = await fetch("/api/upload", { method: "POST", body: data });
+      const result = await response.json();
+      if (!response.ok) alert(result.error || "Upload failed.");
+      loadJobs();
+    });
 
     form.addEventListener("submit", async event => {
       event.preventDefault();

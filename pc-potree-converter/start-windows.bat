@@ -16,5 +16,15 @@ echo Example:
 echo set POTREE_CONVERTER=C:\Tools\PotreeConverter\PotreeConverter.exe
 echo.
 
+if not exist node_modules (
+  echo Installing local Node dependencies...
+  npm install
+  if errorlevel 1 (
+    echo npm install failed.
+    pause
+    exit /b 1
+  )
+)
+
 node server.js
 pause

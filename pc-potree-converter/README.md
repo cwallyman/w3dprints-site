@@ -26,7 +26,7 @@ Then open:
 http://localhost:8787
 ```
 
-Paste a full file path, for example:
+Drag and drop a `.las` or `.laz` file onto the upload box, or paste a full file path, for example:
 
 ```text
 C:\Users\you\Desktop\train.laz
@@ -40,6 +40,12 @@ Converted clouds are written to:
 
 ```text
 pc-potree-converter\data\pointclouds
+```
+
+Dropped/uploaded source files are stored in:
+
+```text
+pc-potree-converter\data\uploads
 ```
 
 Uploads are not sent anywhere. This app runs locally on your PC.
