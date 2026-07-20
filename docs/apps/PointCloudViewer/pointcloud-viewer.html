@@ -204,6 +204,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
   <div id="toolbar" style="display:none">
     <span class="tb-label">Color</span>
     <select id="color-mode">
+      <option value="white" selected>White</option>
       <option value="elevation">Elevation</option>
       <option value="intensity">Intensity</option>
       <option value="rgb">RGB (if available)</option>
@@ -211,7 +212,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
     </select>
     <div class="tb-sep"></div>
     <span class="tb-label">Point size</span>
-    <input type="range" id="point-size" min="0.1" max="3" step="0.1" value="0.7">
+    <input type="range" id="point-size" min="0.1" max="3" step="0.1" value="0.45">
     <div class="tb-sep"></div>
     <span class="tb-label">Budget</span>
     <select id="point-budget">
@@ -240,13 +241,14 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
         <div class="panel-body">
           <label class="field">Material
             <select id="appearance-material">
+              <option value="white" selected>White</option>
               <option value="elevation">Elevation</option>
               <option value="intensity">Intensity</option>
               <option value="rgb">RGB</option>
               <option value="classification">Classification</option>
             </select>
           </label>
-          <label class="field">Point size <input type="range" id="appearance-point-size" min="0.1" max="3" step="0.1" value="0.7"></label>
+          <label class="field">Point size <input type="range" id="appearance-point-size" min="0.1" max="3" step="0.1" value="0.45"></label>
           <label class="field">Opacity <input type="range" id="appearance-opacity" min="0.1" max="1" step="0.05" value="1"></label>
           <label class="field">Shape
             <select id="appearance-shape">
@@ -271,9 +273,9 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
       <details class="panel">
         <summary>Eye-Dome Lighting</summary>
         <div class="panel-body">
-          <label class="field">Enable EDL <input id="edl-enabled" type="checkbox"></label>
-          <label class="field">Strength <input type="range" id="edl-strength" min="0" max="2" step="0.05" value="0.7"></label>
-          <label class="field">Radius <input type="range" id="edl-radius" min="1" max="5" step="0.25" value="2"></label>
+          <label class="field">Enable EDL <input id="edl-enabled" type="checkbox" checked></label>
+          <label class="field">Strength <input type="range" id="edl-strength" min="0" max="2" step="0.05" value="1.15"></label>
+          <label class="field">Radius <input type="range" id="edl-radius" min="1" max="5" step="0.25" value="2.5"></label>
           <button class="btn" id="apply-edl" type="button">Apply EDL</button>
         </div>
       </details>
@@ -458,15 +460,15 @@ let flyButton = -1;
 let lastPointer = { x: 0, y: 0 };
 const keyState = new Set();
 const renderSettings = {
-  colorMode: 'elevation',
-  pointSize: 0.7,
+  colorMode: 'white',
+  pointSize: 0.45,
   opacity: 1,
   shape: 'square',
   background: 'dark',
   fixedSize: true,
-  edlEnabled: false,
-  edlStrength: 0.7,
-  edlRadius: 2,
+  edlEnabled: true,
+  edlStrength: 1.15,
+  edlRadius: 2.5,
 };
 const clipSettings = {
   enabled: false,
@@ -921,7 +923,9 @@ function buildColors(data, mode) {
   const yRange = yMax - yMin || 1;
   for (let i = 0; i < count; i++) {
     let r, g, b;
-    if (mode === 'rgb' && data.hasRGB) {
+    if (mode === 'white') {
+      r = g = b = 0.94;
+    } else if (mode === 'rgb' && data.hasRGB) {
       r = col[i*3]; g = col[i*3+1]; b = col[i*3+2];
     } else if (mode === 'intensity') {
       const v = inten[i];
@@ -1633,8 +1637,13 @@ async function loadFile(file) {
     setProgress(80, 'Building geometry...');
     await new Promise(r => setTimeout(r, 20));
 
-    renderSettings.colorMode = document.getElementById('color-mode')?.value || 'elevation';
-    renderSettings.pointSize = parseFloat(document.getElementById('point-size')?.value || '0.7');
+    renderSettings.colorMode = document.getElementById('appearance-material')?.value || 'white';
+    renderSettings.pointSize = parseFloat(document.getElementById('appearance-point-size')?.value || '0.45');
+    renderSettings.edlEnabled = document.getElementById('edl-enabled')?.checked ?? true;
+    renderSettings.edlStrength = parseFloat(document.getElementById('edl-strength')?.value || '1.15');
+    renderSettings.edlRadius = parseFloat(document.getElementById('edl-radius')?.value || '2.5');
+    document.getElementById('color-mode').value = renderSettings.colorMode;
+    document.getElementById('point-size').value = renderSettings.pointSize;
     document.getElementById('appearance-material').value = renderSettings.colorMode;
     document.getElementById('appearance-point-size').value = renderSettings.pointSize;
     buildMesh(data, renderSettings.colorMode, renderSettings.pointSize);
@@ -1727,7 +1736,7 @@ document.getElementById('apply-appearance')?.addEventListener('click', applyAppe
 document.getElementById('apply-edl')?.addEventListener('click', applyEDLSettings);
 
 document.getElementById('show-class-colors')?.addEventListener('change', e => {
-  const mode = e.target.checked ? 'classification' : 'elevation';
+  const mode = e.target.checked ? 'classification' : 'white';
   document.getElementById('appearance-material').value = mode;
   document.getElementById('color-mode').value = mode;
 });
