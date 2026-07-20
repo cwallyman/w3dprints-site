@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Point Cloud Viewer - Potree Engine</title>
+  <link rel="stylesheet" href="https://potree.org/potree/build/potree/potree.css">
+  <link rel="stylesheet" href="https://potree.org/potree/libs/jquery-ui/jquery-ui.min.css">
+  <link rel="stylesheet" href="https://potree.org/potree/libs/perfect-scrollbar/css/perfect-scrollbar.css">
+  <link rel="stylesheet" href="https://potree.org/potree/libs/openlayers3/ol.css">
+  <link rel="stylesheet" href="https://potree.org/potree/libs/spectrum/spectrum.css">
+  <style>
+    html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#101820;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .potree_container{position:absolute;inset:0}
+    #potree_render_area{position:absolute;inset:0}
+    #potree_sidebar_container{position:absolute;z-index:10}
+    .launch-panel{
+      position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:20;
+      display:flex;align-items:center;gap:8px;max-width:min(820px,calc(100vw - 28px));
+      padding:10px 12px;background:rgba(16,24,32,.92);border:1px solid rgba(139,148,158,.35);
+      border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.3);backdrop-filter:blur(8px);
+    }
+    .launch-panel input{
+      width:min(480px,46vw);background:#0d1117;border:1px solid #30363d;color:#e6edf3;
+      border-radius:6px;padding:7px 9px;font-size:12px;
+    }
+    .launch-panel button,.launch-panel a{
+      border:1px solid #30363d;background:#0d1117;color:#e6edf3;border-radius:6px;
+      padding:7px 10px;font-size:12px;text-decoration:none;cursor:pointer;white-space:nowrap;
+    }
+    .launch-panel button:hover,.launch-panel a:hover{border-color:#58a6ff;color:#58a6ff}
+    #status{
+      position:absolute;left:14px;bottom:14px;z-index:20;max-width:560px;
+      padding:9px 11px;background:rgba(13,17,23,.88);border:1px solid rgba(139,148,158,.28);
+      border-radius:8px;color:#c9d1d9;font-size:12px;line-height:1.4;
+    }
+  </style>
+</head>
+<body>
+  <script src="https://potree.org/potree/libs/jquery/jquery-3.1.1.js"></script>
+  <script src="https://potree.org/potree/libs/spectrum/spectrum.js"></script>
+  <script src="https://potree.org/potree/libs/perfect-scrollbar/js/perfect-scrollbar.jquery.js"></script>
+  <script src="https://potree.org/potree/libs/jquery-ui/jquery-ui.min.js"></script>
+  <script src="https://potree.org/potree/libs/three.js/build/three.js"></script>
+  <script src="https://potree.org/potree/libs/other/stats.min.js"></script>
+  <script src="https://potree.org/potree/libs/other/BinaryHeap.js"></script>
+  <script src="https://potree.org/potree/libs/tween/tween.min.js"></script>
+  <script src="https://potree.org/potree/libs/d3/d3.js"></script>
+  <script src="https://potree.org/potree/libs/proj4/proj4.js"></script>
+  <script src="https://potree.org/potree/libs/openlayers3/ol.js"></script>
+  <script src="https://potree.org/potree/libs/i18next/i18next.js"></script>
+  <script src="https://potree.org/potree/build/potree/potree.js"></script>
+  <script src="https://potree.org/potree/libs/plasio/js/laslaz.js"></script>
+  <script src="https://potree.org/potree/libs/plasio/vendor/bluebird.js"></script>
+
+  <div class="potree_container">
+    <div id="potree_render_area"></div>
+    <div id="potree_sidebar_container"></div>
+  </div>
+
+  <div class="launch-panel">
+    <input id="cloud-url" value="./pointclouds/train/metadata.json" aria-label="Potree metadata or cloud.js URL">
+    <button id="load-cloud" type="button">Load Potree Cloud</button>
+    <button id="demo-cloud" type="button">Lion Demo</button>
+    <a href="./">Raw LAS Viewer</a>
+  </div>
+  <div id="status">Potree engine ready. Load a converted Potree <code>metadata.json</code> or <code>cloud.js</code> URL.</div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const input = document.getElementById('cloud-url');
+    let loadedClouds = [];
+
+    window.viewer = new Potree.Viewer(document.getElementById('potree_render_area'));
+    viewer.setEDLEnabled(true);
+    viewer.setEDLRadius(1.5);
+    viewer.setEDLStrength(1.4);
+    viewer.setFOV(60);
+    viewer.setPointBudget(5 * 1000 * 1000);
+    viewer.setMinNodeSize(24);
+    viewer.setBackground('gradient');
+    viewer.setDescription('Point Cloud Viewer running the Potree engine');
+    viewer.loadSettingsFromURL();
+    viewer.loadGUI(() => {
+      viewer.setLanguage('en');
+      $('#menu_appearance').next().show();
+      $('#menu_tools').next().show();
+      $('#menu_scene').next().show();
+      $('#menu_filters').next().show();
+      $('#menu_clipping').next().show();
+    });
+
+    document.getElementById('load-cloud').addEventListener('click', () => loadPotreeCloud(input.value.trim()));
+    document.getElementById('demo-cloud').addEventListener('click', () => {
+      input.value = 'https://potree.org/potree/pointclouds/lion_takanawa_laz/cloud.js';
+      loadPotreeCloud(input.value);
+    });
+
+    const urlParam = new URL(location.href).searchParams.get('cloud');
+    if (urlParam) {
+      input.value = urlParam;
+      loadPotreeCloud(urlParam);
+    }
+
+    function setStatus(message) {
+      statusEl.innerHTML = message;
+    }
+
+    function loadPotreeCloud(url) {
+      if (!url) {
+        setStatus('Enter a Potree <code>metadata.json</code> or <code>cloud.js</code> URL first.');
+        return;
+      }
+
+      setStatus(`Loading <code>${escapeHtml(url)}</code>...`);
+      Potree.loadPointCloud(url, cloudName(url), event => {
+        const pointcloud = event.pointcloud;
+        const material = pointcloud.material;
+
+        loadedClouds.forEach(cloud => viewer.scene.scenePointCloud.remove(cloud));
+        loadedClouds = [pointcloud];
+
+        viewer.scene.addPointCloud(pointcloud);
+        material.size = 0.55;
+        material.minSize = 1.0;
+        material.pointSizeType = Potree.PointSizeType.ADAPTIVE;
+        material.shape = Potree.PointShape.CIRCLE;
+        if ('activeAttributeName' in material) {
+          material.activeAttributeName = 'rgba';
+        } else if (Potree.PointColorType) {
+          material.pointColorType = Potree.PointColorType.RGB;
+        }
+
+        viewer.fitToScreen();
+        setStatus(`Loaded <code>${escapeHtml(url)}</code> with Potree material, adaptive point sizing, and EDL.`);
+      }, error => {
+        console.error(error);
+        setStatus('Could not load that Potree cloud. Raw LAS/LAZ files must be converted by PotreeConverter or PotreeDesktop first.');
+      });
+    }
+
+    function cloudName(url) {
+      return url.split('/').filter(Boolean).slice(-2, -1)[0] || 'point cloud';
+    }
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[char]));
+    }
+  </script>
+</body>
+</html>
