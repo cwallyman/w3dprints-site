@@ -211,7 +211,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
     </select>
     <div class="tb-sep"></div>
     <span class="tb-label">Point size</span>
-    <input type="range" id="point-size" min="0.5" max="5" step="0.5" value="1.5">
+    <input type="range" id="point-size" min="0.1" max="3" step="0.1" value="0.7">
     <div class="tb-sep"></div>
     <span class="tb-label">Budget</span>
     <select id="point-budget">
@@ -246,7 +246,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
               <option value="classification">Classification</option>
             </select>
           </label>
-          <label class="field">Point size <input type="range" id="appearance-point-size" min="0.5" max="8" step="0.5" value="1.5"></label>
+          <label class="field">Point size <input type="range" id="appearance-point-size" min="0.1" max="3" step="0.1" value="0.7"></label>
           <label class="field">Opacity <input type="range" id="appearance-opacity" min="0.1" max="1" step="0.05" value="1"></label>
           <label class="field">Shape
             <select id="appearance-shape">
@@ -254,6 +254,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
               <option value="circle">Circle</option>
             </select>
           </label>
+          <label class="field">Fixed screen size <input id="appearance-fixed-size" type="checkbox" checked></label>
           <label class="field">Field of view <input type="range" id="appearance-fov" min="25" max="100" step="1" value="60"></label>
           <label class="field">Background
             <select id="appearance-bg">
@@ -263,6 +264,17 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
               <option value="gradient">Gradient</option>
             </select>
           </label>
+          <button class="btn" id="apply-appearance" type="button">Apply Appearance</button>
+        </div>
+      </details>
+
+      <details class="panel">
+        <summary>Eye-Dome Lighting</summary>
+        <div class="panel-body">
+          <label class="field">Enable EDL <input id="edl-enabled" type="checkbox"></label>
+          <label class="field">Strength <input type="range" id="edl-strength" min="0" max="2" step="0.05" value="0.7"></label>
+          <label class="field">Radius <input type="range" id="edl-radius" min="1" max="5" step="0.25" value="2"></label>
+          <button class="btn" id="apply-edl" type="button">Apply EDL</button>
         </div>
       </details>
 
@@ -276,6 +288,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
             <button class="btn" type="button" data-tool="area">Area</button>
             <button class="btn" type="button" data-tool="angle">Angle</button>
             <button class="btn" type="button" data-tool="profile">Profile</button>
+            <button class="btn" type="button" data-tool="clip-box">Clip Box</button>
           </div>
           <button class="btn danger" id="clear-measurements" type="button">Clear Measurements</button>
           <button class="btn" id="export-measurements" type="button">Export Measurements</button>
@@ -324,6 +337,9 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
           <label class="field">Min elevation <input type="range" id="clip-min" min="0" max="100" step="1" value="0"></label>
           <label class="field">Max elevation <input type="range" id="clip-max" min="0" max="100" step="1" value="100"></label>
           <div class="scene-row"><span>Range</span><strong id="clip-label">Full</strong></div>
+          <div class="scene-row"><span>Selected area</span><strong id="clip-area-label">None</strong></div>
+          <button class="btn" id="apply-clipping" type="button">Apply Clipping</button>
+          <button class="btn" id="clear-clip-area" type="button">Clear Clip Area</button>
         </div>
       </details>
 
@@ -443,16 +459,21 @@ let lastPointer = { x: 0, y: 0 };
 const keyState = new Set();
 const renderSettings = {
   colorMode: 'elevation',
-  pointSize: 1.5,
+  pointSize: 0.7,
   opacity: 1,
   shape: 'square',
   background: 'dark',
+  fixedSize: true,
+  edlEnabled: false,
+  edlStrength: 0.7,
+  edlRadius: 2,
 };
 const clipSettings = {
   enabled: false,
   mode: 'inside',
   minPct: 0,
   maxPct: 100,
+  box: null,
 };
 const classificationVisibility = new Map();
 let circlePointTexture = null;
@@ -460,6 +481,8 @@ let measurementMode = null;
 let measurementDraft = [];
 let measurements = [];
 let measurementGroup = null;
+let clipBoxDraft = [];
+let clipBoxHelper = null;
 
 // ── Three.js setup ────────────────────────────────────────────────────────────
 function initThree() {
@@ -893,6 +916,9 @@ function jet(t) {
 function buildColors(data, mode) {
   const { pos, col, inten, cls, count, minZ, rangeZ } = data;
   const c = new Float32Array(count * 3);
+  const yMin = minPointY(data);
+  const yMax = maxPointY(data);
+  const yRange = yMax - yMin || 1;
   for (let i = 0; i < count; i++) {
     let r, g, b;
     if (mode === 'rgb' && data.hasRGB) {
@@ -909,9 +935,19 @@ function buildColors(data, mode) {
       // Simpler: just normalise Y across the dataset
       [r, g, b] = jet(t);
     }
+    if (renderSettings.edlEnabled) {
+      const shade = edlShade((pos[i*3+1] - yMin) / yRange);
+      r *= shade; g *= shade; b *= shade;
+    }
     c[i*3] = r; c[i*3+1] = g; c[i*3+2] = b;
   }
   return c;
+}
+
+function edlShade(t) {
+  const rings = Math.sin(t * Math.PI * 2 * renderSettings.edlRadius);
+  const contrast = 1 - Math.abs(rings) * 0.16 * renderSettings.edlStrength;
+  return Math.max(0.2, Math.min(1.2, contrast));
 }
 
 function classColor(code) {
@@ -944,7 +980,11 @@ function buildElevColors(data) {
   const c = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) {
     const t = (pos[i*3+1] - ymin) / range;
-    const [r, g, b] = jet(t);
+    let [r, g, b] = jet(t);
+    if (renderSettings.edlEnabled) {
+      const shade = edlShade(t);
+      r *= shade; g *= shade; b *= shade;
+    }
     c[i*3] = r; c[i*3+1] = g; c[i*3+2] = b;
   }
   return c;
@@ -966,7 +1006,7 @@ function buildMesh(data, colorMode = renderSettings.colorMode, pointSize = rende
   const mat = new THREE.PointsMaterial({
     size: pointSize,
     vertexColors: true,
-    sizeAttenuation: true,
+    sizeAttenuation: !renderSettings.fixedSize,
     transparent: renderSettings.opacity < 1,
     opacity: renderSettings.opacity,
     map: renderSettings.shape === 'circle' ? getCirclePointTexture() : null,
@@ -990,8 +1030,13 @@ function filterPointData(data) {
     const cls = data.cls?.[i] ?? 0;
     const classOk = classificationVisibility.size === 0 || classificationVisibility.get(cls) !== false;
     const y = data.pos[i*3+1];
+    const x = data.pos[i*3];
+    const z = data.pos[i*3+2];
     const inside = y >= clipMin && y <= clipMax;
-    const clipOk = !clipSettings.enabled || (clipSettings.mode === 'inside' ? inside : !inside);
+    const boxInside = !clipSettings.box ||
+      (x >= clipSettings.box.minX && x <= clipSettings.box.maxX && z >= clipSettings.box.minZ && z <= clipSettings.box.maxZ);
+    const clipInside = inside && boxInside;
+    const clipOk = !clipSettings.enabled || (clipSettings.mode === 'inside' ? clipInside : !clipInside);
     if (classOk && clipOk) visible.push(i);
   }
 
@@ -1281,6 +1326,7 @@ function updateClipLabel() {
   const label = document.getElementById('clip-label');
   if (!label) return;
   label.textContent = clipSettings.enabled ? `${clipSettings.minPct}% - ${clipSettings.maxPct}%` : 'Full';
+  updateClipAreaLabel();
 }
 
 function setBackground(mode) {
@@ -1303,11 +1349,27 @@ function setBackground(mode) {
 function setMeasurementMode(mode) {
   measurementMode = measurementMode === mode ? null : mode;
   measurementDraft = [];
+  clipBoxDraft = [];
   document.querySelectorAll('[data-tool]').forEach(btn => btn.classList.toggle('is-active', btn.dataset.tool === measurementMode));
 }
 
 function pickPoint(event) {
   if (!measurementMode || !pointsMesh) return;
+  const hit = pickCloudPoint(event);
+  if (!hit) return;
+
+  if (measurementMode === 'clip-box') {
+    clipBoxDraft.push(hit.point.clone());
+    if (clipBoxDraft.length >= 2) finishClipBox();
+    return;
+  }
+
+  measurementDraft.push(hit.point.clone());
+  const needed = { point: 1, distance: 2, height: 2, area: 3, angle: 3, profile: 2 }[measurementMode] || 2;
+  if (measurementDraft.length >= needed) finishMeasurement();
+}
+
+function pickCloudPoint(event) {
   const rect = renderer.domElement.getBoundingClientRect();
   const pointer = new THREE.Vector2(
     ((event.clientX - rect.left) / rect.width) * 2 - 1,
@@ -1317,10 +1379,69 @@ function pickPoint(event) {
   raycaster.params.Points.threshold = Math.max(getSceneSpan() * 0.008, 0.4);
   raycaster.setFromCamera(pointer, camera);
   const hit = raycaster.intersectObject(pointsMesh, false)[0];
-  if (!hit) return;
-  measurementDraft.push(hit.point.clone());
-  const needed = { point: 1, distance: 2, height: 2, area: 3, angle: 3, profile: 2 }[measurementMode] || 2;
-  if (measurementDraft.length >= needed) finishMeasurement();
+  return hit || null;
+}
+
+function finishClipBox() {
+  const [a, b] = clipBoxDraft.splice(0);
+  clipSettings.box = {
+    minX: Math.min(a.x, b.x),
+    maxX: Math.max(a.x, b.x),
+    minZ: Math.min(a.z, b.z),
+    maxZ: Math.max(a.z, b.z),
+  };
+  clipSettings.enabled = true;
+  document.getElementById('clip-enabled').checked = true;
+  drawClipBox();
+  updateClipAreaLabel();
+  showError('Clip area selected. Press Apply Clipping to update the cloud.');
+}
+
+function drawClipBox() {
+  if (clipBoxHelper) {
+    scene.remove(clipBoxHelper);
+    clipBoxHelper.geometry?.dispose?.();
+    clipBoxHelper.material?.dispose?.();
+    clipBoxHelper = null;
+  }
+  if (!clipSettings.box) return;
+  const y = 0;
+  const { minX, maxX, minZ, maxZ } = clipSettings.box;
+  const points = [
+    new THREE.Vector3(minX, y, minZ),
+    new THREE.Vector3(maxX, y, minZ),
+    new THREE.Vector3(maxX, y, maxZ),
+    new THREE.Vector3(minX, y, maxZ),
+    new THREE.Vector3(minX, y, minZ),
+  ];
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineBasicMaterial({ color: 0x58a6ff, depthTest: false });
+  clipBoxHelper = new THREE.Line(geo, mat);
+  scene.add(clipBoxHelper);
+}
+
+function clearClipArea() {
+  clipSettings.box = null;
+  clipBoxDraft = [];
+  if (clipBoxHelper) {
+    scene.remove(clipBoxHelper);
+    clipBoxHelper.geometry?.dispose?.();
+    clipBoxHelper.material?.dispose?.();
+    clipBoxHelper = null;
+  }
+  updateClipAreaLabel();
+}
+
+function updateClipAreaLabel() {
+  const label = document.getElementById('clip-area-label');
+  if (!label) return;
+  if (!clipSettings.box) {
+    label.textContent = 'None';
+    return;
+  }
+  const w = clipSettings.box.maxX - clipSettings.box.minX;
+  const d = clipSettings.box.maxZ - clipSettings.box.minZ;
+  label.textContent = `${fmt(Math.abs(w))} x ${fmt(Math.abs(d))} m`;
 }
 
 function finishMeasurement() {
@@ -1415,6 +1536,42 @@ function downloadBlob(blob, name) {
   URL.revokeObjectURL(url);
 }
 
+function applyAppearanceSettings() {
+  renderSettings.colorMode = document.getElementById('appearance-material').value;
+  renderSettings.pointSize = parseFloat(document.getElementById('appearance-point-size').value);
+  renderSettings.opacity = parseFloat(document.getElementById('appearance-opacity').value);
+  renderSettings.shape = document.getElementById('appearance-shape').value;
+  renderSettings.fixedSize = document.getElementById('appearance-fixed-size').checked;
+  camera.fov = parseFloat(document.getElementById('appearance-fov').value);
+  camera.updateProjectionMatrix();
+  document.getElementById('color-mode').value = renderSettings.colorMode;
+  document.getElementById('point-size').value = renderSettings.pointSize;
+  document.getElementById('show-class-colors').checked = renderSettings.colorMode === 'classification';
+  setBackground(document.getElementById('appearance-bg').value);
+  refreshCloud();
+}
+
+function applyEDLSettings() {
+  renderSettings.edlEnabled = document.getElementById('edl-enabled').checked;
+  renderSettings.edlStrength = parseFloat(document.getElementById('edl-strength').value);
+  renderSettings.edlRadius = parseFloat(document.getElementById('edl-radius').value);
+  refreshCloud();
+}
+
+function applyClippingSettings() {
+  clipSettings.enabled = document.getElementById('clip-enabled').checked;
+  clipSettings.mode = document.getElementById('clip-mode').value;
+  clipSettings.minPct = parseInt(document.getElementById('clip-min').value, 10);
+  clipSettings.maxPct = parseInt(document.getElementById('clip-max').value, 10);
+  if (clipSettings.minPct > clipSettings.maxPct) {
+    [clipSettings.minPct, clipSettings.maxPct] = [clipSettings.maxPct, clipSettings.minPct];
+    document.getElementById('clip-min').value = clipSettings.minPct;
+    document.getElementById('clip-max').value = clipSettings.maxPct;
+  }
+  updateClipLabel();
+  refreshCloud();
+}
+
 function setDownload(blob, name) {
   currentLasBlob = blob;
   currentLasName = name;
@@ -1477,7 +1634,7 @@ async function loadFile(file) {
     await new Promise(r => setTimeout(r, 20));
 
     renderSettings.colorMode = document.getElementById('color-mode')?.value || 'elevation';
-    renderSettings.pointSize = parseFloat(document.getElementById('point-size')?.value || '1.5');
+    renderSettings.pointSize = parseFloat(document.getElementById('point-size')?.value || '0.7');
     document.getElementById('appearance-material').value = renderSettings.colorMode;
     document.getElementById('appearance-point-size').value = renderSettings.pointSize;
     buildMesh(data, renderSettings.colorMode, renderSettings.pointSize);
@@ -1560,57 +1717,38 @@ document.getElementById('sidebar-close')?.addEventListener('click', () => {
 });
 
 document.getElementById('appearance-material')?.addEventListener('change', e => {
-  renderSettings.colorMode = e.target.value;
   document.getElementById('color-mode').value = e.target.value;
   document.getElementById('show-class-colors').checked = e.target.value === 'classification';
-  refreshCloud();
 });
 document.getElementById('appearance-point-size')?.addEventListener('input', e => {
-  renderSettings.pointSize = parseFloat(e.target.value);
   document.getElementById('point-size').value = e.target.value;
-  if (pointsMesh) pointsMesh.material.size = renderSettings.pointSize;
 });
-document.getElementById('appearance-opacity')?.addEventListener('input', e => {
-  renderSettings.opacity = parseFloat(e.target.value);
-  refreshCloud();
-});
-document.getElementById('appearance-shape')?.addEventListener('change', e => {
-  renderSettings.shape = e.target.value;
-  refreshCloud();
-});
-document.getElementById('appearance-fov')?.addEventListener('input', e => {
-  camera.fov = parseFloat(e.target.value);
-  camera.updateProjectionMatrix();
-});
-document.getElementById('appearance-bg')?.addEventListener('change', e => setBackground(e.target.value));
+document.getElementById('apply-appearance')?.addEventListener('click', applyAppearanceSettings);
+document.getElementById('apply-edl')?.addEventListener('click', applyEDLSettings);
 
 document.getElementById('show-class-colors')?.addEventListener('change', e => {
-  renderSettings.colorMode = e.target.checked ? 'classification' : 'elevation';
-  document.getElementById('appearance-material').value = renderSettings.colorMode;
-  document.getElementById('color-mode').value = renderSettings.colorMode;
-  refreshCloud();
+  const mode = e.target.checked ? 'classification' : 'elevation';
+  document.getElementById('appearance-material').value = mode;
+  document.getElementById('color-mode').value = mode;
 });
 
 document.getElementById('clip-enabled')?.addEventListener('change', e => {
-  clipSettings.enabled = e.target.checked;
-  updateClipLabel();
-  refreshCloud();
-});
-document.getElementById('clip-mode')?.addEventListener('change', e => {
-  clipSettings.mode = e.target.value;
-  refreshCloud();
+  document.getElementById('clip-label').textContent = e.target.checked ? `${document.getElementById('clip-min').value}% - ${document.getElementById('clip-max').value}%` : 'Full';
 });
 document.getElementById('clip-min')?.addEventListener('input', e => {
-  clipSettings.minPct = Math.min(parseInt(e.target.value, 10), clipSettings.maxPct);
-  e.target.value = clipSettings.minPct;
-  updateClipLabel();
-  refreshCloud();
+  const max = parseInt(document.getElementById('clip-max').value, 10);
+  if (parseInt(e.target.value, 10) > max) e.target.value = max;
+  document.getElementById('clip-label').textContent = `${e.target.value}% - ${document.getElementById('clip-max').value}%`;
 });
 document.getElementById('clip-max')?.addEventListener('input', e => {
-  clipSettings.maxPct = Math.max(parseInt(e.target.value, 10), clipSettings.minPct);
-  e.target.value = clipSettings.maxPct;
-  updateClipLabel();
-  refreshCloud();
+  const min = parseInt(document.getElementById('clip-min').value, 10);
+  if (parseInt(e.target.value, 10) < min) e.target.value = min;
+  document.getElementById('clip-label').textContent = `${document.getElementById('clip-min').value}% - ${e.target.value}%`;
+});
+document.getElementById('apply-clipping')?.addEventListener('click', applyClippingSettings);
+document.getElementById('clear-clip-area')?.addEventListener('click', () => {
+  clearClipArea();
+  applyClippingSettings();
 });
 
 document.querySelectorAll('[data-tool]').forEach(btn => {
