@@ -253,7 +253,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
           <label class="field">Shape
             <select id="appearance-shape">
               <option value="square">Square</option>
-              <option value="circle">Circle</option>
+              <option value="circle" selected>Circle</option>
             </select>
           </label>
           <label class="field">Fixed screen size <input id="appearance-fixed-size" type="checkbox" checked></label>
@@ -274,7 +274,7 @@ input[type=range]{padding:0;width:80px;accent-color:var(--accent)}
         <summary>Eye-Dome Lighting</summary>
         <div class="panel-body">
           <label class="field">Enable EDL <input id="edl-enabled" type="checkbox" checked></label>
-          <label class="field">Strength <input type="range" id="edl-strength" min="0" max="2" step="0.05" value="1.15"></label>
+          <label class="field">Strength <input type="range" id="edl-strength" min="0" max="2" step="0.05" value="1.45"></label>
           <label class="field">Radius <input type="range" id="edl-radius" min="1" max="5" step="0.25" value="2.5"></label>
           <button class="btn" id="apply-edl" type="button">Apply EDL</button>
         </div>
@@ -463,11 +463,11 @@ const renderSettings = {
   colorMode: 'white',
   pointSize: 0.45,
   opacity: 1,
-  shape: 'square',
+  shape: 'circle',
   background: 'dark',
   fixedSize: true,
   edlEnabled: true,
-  edlStrength: 1.15,
+  edlStrength: 1.45,
   edlRadius: 2.5,
 };
 const clipSettings = {
@@ -488,6 +488,7 @@ let clipBoxHelper = null;
 
 // ── Three.js setup ────────────────────────────────────────────────────────────
 function initThree() {
+  syncControlsToDefaults();
   const canvas = document.getElementById('canvas');
   renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -516,6 +517,32 @@ function initThree() {
   new ResizeObserver(onResize).observe(canvas.parentElement);
   onResize();
   animate();
+}
+
+function syncControlsToDefaults() {
+  setValue('color-mode', renderSettings.colorMode);
+  setValue('point-size', renderSettings.pointSize);
+  setValue('appearance-material', renderSettings.colorMode);
+  setValue('appearance-point-size', renderSettings.pointSize);
+  setValue('appearance-opacity', renderSettings.opacity);
+  setValue('appearance-shape', renderSettings.shape);
+  setChecked('appearance-fixed-size', renderSettings.fixedSize);
+  setValue('appearance-fov', 60);
+  setValue('appearance-bg', renderSettings.background);
+  setChecked('edl-enabled', renderSettings.edlEnabled);
+  setValue('edl-strength', renderSettings.edlStrength);
+  setValue('edl-radius', renderSettings.edlRadius);
+  setChecked('show-class-colors', false);
+}
+
+function setValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value;
+}
+
+function setChecked(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.checked = Boolean(value);
 }
 
 function onResize() {
@@ -949,9 +976,10 @@ function buildColors(data, mode) {
 }
 
 function edlShade(t) {
-  const rings = Math.sin(t * Math.PI * 2 * renderSettings.edlRadius);
-  const contrast = 1 - Math.abs(rings) * 0.16 * renderSettings.edlStrength;
-  return Math.max(0.2, Math.min(1.2, contrast));
+  const fine = Math.abs(Math.sin(t * Math.PI * 16 * renderSettings.edlRadius));
+  const broad = Math.abs(Math.sin(t * Math.PI * 3));
+  const contrast = 1 - (fine * 0.22 + broad * 0.1) * renderSettings.edlStrength;
+  return Math.max(0.08, Math.min(1.05, contrast));
 }
 
 function classColor(code) {
