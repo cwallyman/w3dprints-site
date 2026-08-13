@@ -5,6 +5,7 @@ const carResults = document.getElementById("car-results");
 const trainInput = document.getElementById("train-input");
 const trainResults = document.getElementById("train-results");
 const lastUpdated = document.getElementById("last-updated");
+const exportLink = document.getElementById("export-link");
 
 const REFRESH_MS = 60_000;
 
@@ -19,6 +20,8 @@ function fmtTime(iso) {
 
 async function loadTrips() {
   const date = dateInput.value || todayEastern();
+  exportLink.href = `/api/export?date=${encodeURIComponent(date)}`;
+  exportLink.download = `septa-consists-${date}.xlsx`;
   const res = await fetch(`/api/trips?date=${encodeURIComponent(date)}`);
   const data = await res.json();
   tripsBody.innerHTML = "";
