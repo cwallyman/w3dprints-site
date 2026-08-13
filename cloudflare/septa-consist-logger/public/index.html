@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SEPTA Consist Logger</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header>
+  <h1>SEPTA Consist Logger</h1>
+  <div class="datebar">
+    <label for="date">Service date</label>
+    <input type="date" id="date" />
+    <span id="last-updated" class="muted"></span>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h2>Today's trips</h2>
+    <table id="trips-table">
+      <thead>
+        <tr>
+          <th>Train #</th>
+          <th>Line</th>
+          <th>Source</th>
+          <th>Dest</th>
+          <th>Consist</th>
+          <th>First seen</th>
+          <th>Last seen</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="search">
+    <div>
+      <h2>Look up a car</h2>
+      <input type="text" id="car-input" placeholder="e.g. 2404" />
+      <button id="car-search">Search</button>
+      <ul id="car-results"></ul>
+    </div>
+
+    <div>
+      <h2>Look up a train number</h2>
+      <input type="text" id="train-input" placeholder="e.g. 3486" />
+      <button id="train-search">Search</button>
+      <ul id="train-results"></ul>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

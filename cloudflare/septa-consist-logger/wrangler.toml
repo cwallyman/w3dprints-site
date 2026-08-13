@@ -1,0 +1,15 @@
+name = "septa-consist-logger"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "septa-consists"
+database_id = "7f37211d-7057-4887-8ab5-003e892e3714"
+
+[triggers]
+crons = ["* * * * *"]

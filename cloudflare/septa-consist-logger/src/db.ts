@@ -1,0 +1,138 @@
+import type { TrainViewEntry } from "./septa";
+
+/** If a train number reappears more than this long after we last saw it,
+ * treat it as a new trip rather than a continuation (SEPTA reuses train
+ * numbers for different runs later the same service day). */
+const GAP_MS = 3 * 60 * 60 * 1000;
+
+export interface TripRow {
+  id: number;
+  service_date: string;
+  trainno: string;
+  line: string | null;
+  source: string | null;
+  dest: string | null;
+  last_consist: string;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface PollSummary {
+  seen: number;
+  newTrips: number;
+  consistChanges: number;
+  touched: number;
+  skipped: number;
+}
+
+export async function ingestTrainView(
+  db: D1Database,
+  entries: TrainViewEntry[],
+  serviceDate: string,
+  nowIso: string
+): Promise<PollSummary> {
+  const summary: PollSummary = { seen: 0, newTrips: 0, consistChanges: 0, touched: 0, skipped: 0 };
+
+  const existingRows = await db
+    .prepare(
+      `SELECT * FROM trips WHERE service_date = ? ORDER BY last_seen_at DESC`
+    )
+    .bind(serviceDate)
+    .all<TripRow>();
+
+  // Most recent trip per trainno (rows already ordered by last_seen_at desc).
+  const latestByTrainno = new Map<string, TripRow>();
+  for (const row of existingRows.results ?? []) {
+    if (!latestByTrainno.has(row.trainno)) {
+      latestByTrainno.set(row.trainno, row);
+    }
+  }
+
+  const batchStatements: D1PreparedStatement[] = [];
+  const nowMs = Date.parse(nowIso);
+
+  for (const entry of entries) {
+    const trainno = entry.trainno?.trim();
+    if (!trainno) {
+      summary.skipped++;
+      continue;
+    }
+    summary.seen++;
+
+    const consist = (entry.consist ?? "").trim();
+    const line = entry.line || null;
+    const source = entry.SOURCE || null;
+    const dest = entry.dest || null;
+
+    const existing = latestByTrainno.get(trainno);
+    const gapExceeded =
+      existing !== undefined && nowMs - Date.parse(existing.last_seen_at) > GAP_MS;
+
+    if (!existing || gapExceeded) {
+      const inserted = await db
+        .prepare(
+          `INSERT INTO trips (service_date, trainno, line, source, dest, last_consist, first_seen_at, last_seen_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(serviceDate, trainno, line, source, dest, consist, nowIso, nowIso)
+        .run();
+      const tripId = inserted.meta.last_row_id;
+      batchStatements.push(
+        db
+          .prepare(
+            `INSERT INTO observations (trip_id, consist, observed_at) VALUES (?, ?, ?)`
+          )
+          .bind(tripId, consist, nowIso)
+      );
+      latestByTrainno.set(trainno, {
+        id: Number(tripId),
+        service_date: serviceDate,
+        trainno,
+        line,
+        source,
+        dest,
+        last_consist: consist,
+        first_seen_at: nowIso,
+        last_seen_at: nowIso,
+      });
+      summary.newTrips++;
+      continue;
+    }
+
+    if (consist !== "" && consist !== existing.last_consist) {
+      batchStatements.push(
+        db
+          .prepare(
+            `UPDATE trips SET last_seen_at = ?, last_consist = ?, line = ?, source = ?, dest = ? WHERE id = ?`
+          )
+          .bind(nowIso, consist, line, source, dest, existing.id)
+      );
+      batchStatements.push(
+        db
+          .prepare(
+            `INSERT INTO observations (trip_id, consist, observed_at) VALUES (?, ?, ?)`
+          )
+          .bind(existing.id, consist, nowIso)
+      );
+      existing.last_consist = consist;
+      existing.last_seen_at = nowIso;
+      summary.consistChanges++;
+    } else {
+      batchStatements.push(
+        db
+          .prepare(
+            `UPDATE trips SET last_seen_at = ?, line = ?, source = ?, dest = ? WHERE id = ?`
+          )
+          .bind(nowIso, line, source, dest, existing.id)
+      );
+      existing.last_seen_at = nowIso;
+      summary.touched++;
+    }
+  }
+
+  if (batchStatements.length > 0) {
+    await db.batch(batchStatements);
+  }
+
+  return summary;
+}
